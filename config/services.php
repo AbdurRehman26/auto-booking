@@ -14,6 +14,13 @@ return [
     |
     */
 
+    'step_notifications' => [
+        'telegram_token' => env('TELEGRAM_BOT_TOKEN'),
+        'twilio_sid' => env('TWILIO_ACCOUNT_SID'),
+        'twilio_token' => env('TWILIO_AUTH_TOKEN'),
+        'whatsapp_from' => env('TWILIO_WHATSAPP_FROM'),
+    ],
+
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],

@@ -28,7 +28,7 @@ class StoreWorkflowRequest extends FormRequest
             'url' => ['nullable', 'url:http,https', 'max:2000'],
             'interval' => ['required', 'string', 'max:60'],
             'pause' => ['required', 'boolean'],
-            'steps' => ['array'], 'steps.*.type' => ['required', 'string', 'max:30'], 'steps.*.text' => ['required', 'string', 'max:2000'],
+            'steps' => ['array'], 'steps.*.type' => ['required', 'string', 'max:30'], 'steps.*.text' => ['required', 'string', 'max:6000'],
             'notifications' => ['array'], 'notifications.*.channel' => ['required', 'in:email,slack,whatsapp,webhook'],
             'notifications.*.trigger' => ['required', 'in:failure,availability,complete,step'],
             'notifications.*.step' => ['nullable', 'integer', 'min:0'], 'notifications.*.destination' => ['required', 'string', 'max:2000'],

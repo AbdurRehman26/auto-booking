@@ -35,6 +35,7 @@
           <div class="intro-actions">
             <button class="btn secondary" id="newFlowBtn">＋ New flow</button>
             <button class="btn primary" id="runBtn"><span>▶</span> Test run</button>
+            <label class="delivery-choice"><input id="deliverNotifications" type="checkbox"> Send real notifications during this test</label>
           </div>
         </section>
 
@@ -66,8 +67,14 @@
             </div>
 
             <div id="visualMode">
+              <p id="reorderHelp" class="reorder-help">Drag the grip to rearrange steps. On a focused grip, use ↑ / ↓ to move.</p>
+              <div id="reorderStatus" class="sr-only" role="status" aria-live="polite"></div>
               <div id="steps" class="steps"></div>
-              <button class="add-step" id="addStepBtn"><span>＋</span> Add another step</button>
+              <button class="add-step" id="addStepBtn" aria-expanded="false" aria-controls="stepPicker"><span>＋</span> Add another step</button>
+              <section id="stepPicker" class="step-picker hidden" aria-label="Choose a step type">
+                <div class="step-picker-head"><strong>What should happen next?</strong><button id="closeStepPicker" aria-label="Close step picker">×</button></div>
+                <div id="stepChoices" class="step-choices"></div>
+              </section>
             </div>
 
             <div id="textMode" class="text-mode hidden">
@@ -90,7 +97,7 @@
               <div id="notificationList" class="notification-list"></div>
             </div>
             <button class="btn dark full" id="openSiteBtn">Open booking site ↗</button>
-            <p class="legal">No background booking is performed by this prototype. The city site opens in a separate tab for user-supervised completion.</p>
+            <p class="legal">Test runs open a real browser with a live preview. Personal information and booking submissions require your review on the city site.</p>
           </aside>
         </section>
       </main>
@@ -99,11 +106,23 @@
     <div class="modal-backdrop hidden" id="runModal">
       <div class="run-modal" role="dialog" aria-modal="true" aria-labelledby="runTitle">
         <div class="run-head"><div><span class="live-dot"></span><span>TEST SESSION</span></div><button id="closeRun" aria-label="Close">×</button></div>
-        <h2 id="runTitle">Checking your workflow</h2>
-        <p class="run-sub">This is a safe simulation. No information will be submitted.</p>
+        <h2 id="runTitle">Live browser preview</h2>
+        <p class="run-sub">Watch the actual website as each step runs. Next, Weiter, Continue, and modal OK can load the next screen. Personal information and final booking still require review.</p>
         <div class="progress-track"><i id="progressBar"></i></div>
-        <div id="runSteps" class="run-steps"></div>
-        <div class="run-footer"><span id="runStatus">Preparing…</span><button class="btn secondary compact" id="stopRun">Stop test</button></div>
+        <div class="run-layout">
+          <section class="browser-preview" aria-label="Live browser preview">
+            <div class="browser-toolbar"><span class="browser-dots" aria-hidden="true">● ● ●</span><span id="previewUrl">Opening browser…</span><span class="preview-badge" id="previewBadge">STARTING</span></div>
+            <div class="preview-screen">
+              <div id="previewEmpty" class="preview-empty"><span>↗</span><strong>Opening a fresh browser</strong><p>The real booking page will appear here.</p></div>
+              <img id="previewFrame" class="hidden" alt="Latest screenshot from the test browser" />
+            </div>
+            <p id="networkNotice" class="run-sub hidden" role="status"></p>
+            <p id="cookieNotice" class="run-sub hidden" role="status"></p>
+            <div class="preview-caption"><span id="previewTime">Waiting for first screenshot</span><span>1280 × 800 · Read-only preview</span></div>
+          </section>
+          <aside class="run-activity"><div class="activity-heading">STEP ACTIVITY <span id="runCount"></span></div><div id="runSteps" class="run-steps"></div><p class="run-tip">Use exact page labels: Click “Weiter” or Check “Available appointments”. General instructions pause for clarification.</p></aside>
+        </div>
+        <div class="run-footer"><span id="runStatus" role="status" aria-live="polite">Preparing…</span><div class="run-controls"><button class="btn secondary compact hidden" id="retryRun">Run again</button><button class="btn secondary compact" id="stopRun">Stop test</button></div></div>
       </div>
     </div>
 

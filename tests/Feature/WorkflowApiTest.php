@@ -9,6 +9,22 @@ class WorkflowApiTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_conditional_steps_and_instructions_keep_their_types_and_content(): void
+    {
+        $steps = [
+            ['type' => 'condition', 'text' => 'If "Available" is visible then click: "Continue" else review: "Pause"'],
+            ['type' => 'instruction', 'text' => 'Review the service requirements'],
+        ];
+
+        $created = $this->postJson('/api/workflows', [
+            'name' => 'Conditional flow', 'url' => 'https://example.com',
+            'interval' => 'Manual only', 'pause' => true, 'steps' => $steps,
+        ])->assertCreated()->assertJsonPath('steps.0.text', $steps[0]['text'])->json();
+
+        $this->getJson('/api/workflows')->assertJsonPath('0.steps.0.type', 'condition')->assertJsonPath('0.steps.1.type', 'instruction');
+        $this->assertDatabaseHas('workflow_steps', ['workflow_id' => $created['id'], 'type' => 'condition', 'instruction' => $steps[0]['text']]);
+    }
+
     public function test_workflow_with_steps_and_notifications_can_be_persisted_updated_and_deleted(): void
     {
         $payload = [
