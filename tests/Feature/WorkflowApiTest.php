@@ -1,0 +1,30 @@
+<?php
+
+namespace Tests\Feature;
+
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class WorkflowApiTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_workflow_with_steps_and_notifications_can_be_persisted_updated_and_deleted(): void
+    {
+        $payload = [
+            'name' => 'Düsseldorf driving licence', 'status' => 'Draft',
+            'url' => 'https://termine.duesseldorf.de/select2?md=3', 'interval' => 'Every 5 minutes', 'pause' => true,
+            'steps' => [['type' => 'navigate', 'text' => 'Open the booking page'], ['type' => 'check', 'text' => 'Check availability']],
+            'notifications' => [['channel' => 'slack', 'trigger' => 'failure', 'step' => null, 'destination' => 'https://hooks.slack.com/services/test', 'message' => 'Flow failed']],
+        ];
+
+        $created = $this->postJson('/api/workflows', $payload)->assertCreated()->assertJsonPath('steps.1.type', 'check')->assertJsonPath('notifications.0.channel', 'slack')->json();
+        $payload['name'] = 'Updated flow';
+        $this->putJson('/api/workflows/'.$created['id'], $payload)->assertOk()->assertJsonPath('name', 'Updated flow');
+        $this->getJson('/api/workflows')->assertOk()->assertJsonCount(1)->assertJsonPath('0.notifications.0.trigger', 'failure');
+        $this->deleteJson('/api/workflows/'.$created['id'])->assertNoContent();
+        $this->assertDatabaseCount('workflows', 0);
+        $this->assertDatabaseCount('workflow_steps', 0);
+        $this->assertDatabaseCount('notification_rules', 0);
+    }
+}
