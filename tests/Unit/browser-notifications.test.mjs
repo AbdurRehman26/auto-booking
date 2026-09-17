@@ -1,3 +1,9 @@
+import {readFileSync} from 'node:fs';
+import {configureStepTypes} from '../../public/step-types.js';
+import {configureNotificationProviders} from '../../public/step-notification.js';
+const catalog=JSON.parse(readFileSync(new URL('../../database/seeders/editor-configuration.json',import.meta.url),'utf8'));
+configureStepTypes(catalog.step_types);
+configureNotificationProviders(catalog.notification_providers);
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {formatNotification,parseNotification} from '../../public/step-notification.js';
@@ -41,4 +47,23 @@ test('private network rejection prevents delivery and telegram failure is not re
   await assert.rejects(executeNotification(formatNotification(webhook),{live:true,validateUrl:async()=>{throw new Error('Private address');},send:async()=>{sent=true;}}),/Private address/);
   assert.equal(sent,false);
   await assert.rejects(executeNotification(formatNotification({...webhook,provider:'telegram',destination:'@channel'}),{live:true,env:{TERMINPILOT_TELEGRAM_TOKEN:'123:secret'},validateUrl:async()=>{},send:async()=>({ok:true,json:async()=>({ok:false})})}),/Telegram rejected/);
+});
+
+test('email keeps its subject, validates the recipient and previews without delivery',async()=>{
+  const email={provider:'email',destination:'reader@example.com',subject:'Available appointment',message:'A new slot is available.'};
+  assert.deepEqual(parseNotification(formatNotification(email)),email);
+  const fail=()=>{throw new Error('Must not send');};
+  assert.match(await executeNotification(formatNotification(email),{send:fail,env:{}}),/Nothing sent/);
+  await assert.rejects(executeNotification(formatNotification({...email,destination:'not an email'})),/email address/);
+  await assert.rejects(executeNotification(formatNotification({...email,subject:''})),/subject/);
+  await assert.rejects(executeNotification(formatNotification(email),{live:true,env:{},send:fail}),/Email is not connected/);
+  let calls=0;
+  await executeNotification(formatNotification(email),{live:true,env:{TERMINPILOT_RESEND_KEY:'test-key',TERMINPILOT_EMAIL_FROM:'sender@example.com'},validateUrl:async()=>{},send:async(url,options)=>{
+    calls++;
+    assert.equal(url,'https://api.resend.com/emails');
+    assert.equal(options.headers.Authorization,'Bearer test-key');
+    assert.deepEqual(JSON.parse(options.body),{from:'sender@example.com',to:['reader@example.com'],subject:email.subject,text:email.message});
+    return {ok:true};
+  }});
+  assert.equal(calls,1);
 });

@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Jobs\ExecuteTestRun;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -10,6 +12,14 @@ use Tests\TestCase;
 
 class TestRunTest extends TestCase
 {
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->actingAs(User::factory()->create());
+    }
+
     public function test_run_queues_the_current_instructions_and_allows_its_session_to_view_it(): void
     {
         Queue::fake();
@@ -20,7 +30,10 @@ class TestRunTest extends TestCase
         $id = $response->json('id');
 
         Queue::assertPushed(ExecuteTestRun::class, fn (ExecuteTestRun $job): bool => $job->runId === $id);
-        $this->assertSame($payload, json_decode(Storage::disk('local')->get("test-runs/$id/input.json"), true));
+        $input = json_decode(Storage::disk('local')->get("test-runs/$id/input.json"), true);
+        $this->assertArrayHasKey('webhook', $input['notification_providers']);
+        unset($input['notification_providers'], $input['user_id']);
+        $this->assertSame($payload, $input);
         $this->getJson("/api/test-runs/$id")->assertOk()->assertJsonPath('id', $id);
     }
 
@@ -93,7 +106,7 @@ class TestRunTest extends TestCase
         Storage::disk('local')->put("test-runs/$id/state.json", json_encode(['status' => 'running']));
         Storage::disk('local')->put("test-runs/$id/frame.jpg", 'last screenshot');
 
-        $this->withSession(['test_runs' => [$id => true]])->deleteJson("/api/test-runs/$id")
+        $this->withSession(['test_runs' => [$id => auth()->id()]])->deleteJson("/api/test-runs/$id")
             ->assertOk()->assertJsonPath('status', 'stopping');
 
         Storage::disk('local')->assertExists(["test-runs/$id/stop", "test-runs/$id/frame.jpg"]);
@@ -105,7 +118,7 @@ class TestRunTest extends TestCase
         $id = (string) Str::uuid();
         Storage::disk('local')->put("test-runs/$id/state.json", json_encode(['status' => 'queued', 'startedAt' => now()->subMinutes(2)->getTimestampMs()]));
 
-        $this->withSession(['test_runs' => [$id => true]])->getJson("/api/test-runs/$id")
+        $this->withSession(['test_runs' => [$id => auth()->id()]])->getJson("/api/test-runs/$id")
             ->assertOk()->assertJsonPath('status', 'failed');
 
         Storage::disk('local')->assertExists("test-runs/$id/stop");

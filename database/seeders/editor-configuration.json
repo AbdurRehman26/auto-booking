@@ -1,0 +1,168 @@
+{
+  "step_types": {
+    "click": {
+      "label": "Click",
+      "icon": "⌁",
+      "description": "Click a button or link by its exact label.",
+      "text": "Click \"Button label\""
+    },
+    "instruction": {
+      "label": "Just instruction",
+      "icon": "≡",
+      "description": "Write a free-form instruction for human review.",
+      "text": "Describe what should happen"
+    },
+    "check": {
+      "label": "Verify",
+      "icon": "✓",
+      "description": "Check text, an open modal, or a newly loaded page.",
+      "text": "Verify \"Expected text\""
+    },
+    "condition": {
+      "label": "If / else",
+      "icon": "⑂",
+      "description": "Choose an action based on visible page text.",
+      "text": "If \"\" then click: \"Click \\\"Continue\\\"\" else review: \"Pause for review\""
+    },
+    "navigate": {
+      "label": "Go to URL",
+      "icon": "↗",
+      "description": "Open a specific web address.",
+      "text": "Go to https://example.com"
+    },
+    "scroll": {
+      "label": "Scroll",
+      "icon": "↕",
+      "description": "Move up or down by a chosen number of pixels.",
+      "text": "Scroll down 600 pixels"
+    },
+    "enter": {
+      "label": "Enter information",
+      "icon": "Aa",
+      "description": "Pause before entering personal information.",
+      "text": "Enter the required information"
+    },
+    "wait": {
+      "label": "Wait",
+      "icon": "◷",
+      "description": "Wait a few seconds, then continue automatically.",
+      "text": "Wait 3 seconds"
+    },
+    "notify": {
+      "label": "Send notification",
+      "icon": "✉",
+      "description": "Send a message to a webhook, WhatsApp, Slack, and more.",
+      "text": "Notify {\"provider\":\"webhook\",\"destination\":\"\",\"message\":\"Appointment update\"}"
+    },
+    "review": {
+      "label": "Human review",
+      "icon": "◉",
+      "description": "Stop here for your review.",
+      "text": "Pause for review"
+    }
+  },
+  "notification_providers": {
+    "webhook": {
+      "label": "Webhook",
+      "destination": "Webhook URL",
+      "placeholder": "https://example.com/webhook",
+      "help": "Sends JSON with a text field.",
+      "input_type": "url"
+    },
+    "whatsapp": {
+      "label": "WhatsApp",
+      "destination": "WhatsApp number",
+      "placeholder": "+491234567890",
+      "help": "Uses your configured Twilio WhatsApp sender. The recipient must be eligible for a free-form message.",
+      "input_type": "tel"
+    },
+    "slack": {
+      "label": "Slack",
+      "destination": "Slack webhook URL",
+      "placeholder": "https://hooks.slack.com/services/…",
+      "help": "Create an incoming webhook for the Slack channel.",
+      "input_type": "url"
+    },
+    "discord": {
+      "label": "Discord",
+      "destination": "Discord webhook URL",
+      "placeholder": "https://discord.com/api/webhooks/…",
+      "help": "Create a webhook in the channel’s integration settings.",
+      "input_type": "url"
+    },
+    "teams": {
+      "label": "Microsoft Teams",
+      "destination": "Teams Workflow webhook URL",
+      "placeholder": "https://…",
+      "help": "Use a Teams Workflow that accepts incoming webhook Adaptive Cards.",
+      "input_type": "url"
+    },
+    "telegram": {
+      "label": "Telegram",
+      "destination": "Chat ID or channel username",
+      "placeholder": "@your_channel",
+      "help": "Uses the configured Telegram bot. Add it to your chat or channel first.",
+      "input_type": "text"
+    },
+    "email": {
+      "label": "Email",
+      "destination": "Recipient email address",
+      "placeholder": "you@example.com",
+      "input_type": "email",
+      "subject": true,
+      "help": "Sends through Resend. Configure RESEND_API_KEY and a verified MAIL_FROM_ADDRESS on the server."
+    }
+  },
+  "intervals": [
+    "Every 5 minutes",
+    "Every 15 minutes",
+    "Every 30 minutes",
+    "Manual only"
+  ],
+  "workflow_defaults": {
+    "name": "Untitled booking flow",
+    "status": "Draft",
+    "url": "",
+    "interval": "Manual only",
+    "pause": true,
+    "notifications": [],
+    "steps": []
+  },
+  "notification_defaults": {
+    "channel": "email",
+    "trigger": "failure",
+    "message": "Appointment update for {{flow_name}}: {{status}}"
+  },
+  "channels": {
+    "email": {
+      "label": "Email",
+      "icon": "@",
+      "destination": "Email address",
+      "placeholder": "you@example.com"
+    },
+    "slack": {
+      "label": "Slack webhook",
+      "icon": "#",
+      "destination": "Slack webhook URL",
+      "placeholder": "https://hooks.slack.com/services/…"
+    },
+    "whatsapp": {
+      "label": "WhatsApp",
+      "icon": "◉",
+      "destination": "WhatsApp number",
+      "placeholder": "+491234567890"
+    },
+    "webhook": {
+      "label": "Generic webhook",
+      "icon": "↗",
+      "destination": "Webhook URL",
+      "placeholder": "https://example.com/hooks/…"
+    }
+  },
+  "triggers": {
+    "failure": "On failure",
+    "availability": "Availability found",
+    "complete": "Flow complete",
+    "step": "After step"
+  }
+}

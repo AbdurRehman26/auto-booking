@@ -2,12 +2,19 @@
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class WorkflowApiTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->actingAs(User::factory()->create());
+    }
 
     public function test_conditional_steps_and_instructions_keep_their_types_and_content(): void
     {
@@ -29,7 +36,7 @@ class WorkflowApiTest extends TestCase
     {
         $payload = [
             'name' => 'Düsseldorf driving licence', 'status' => 'Draft',
-            'url' => 'https://termine.duesseldorf.de/select2?md=3', 'interval' => 'Every 5 minutes', 'pause' => true,
+            'url' => 'https://termine.duesseldorf.de/select2?md=3', 'interval' => 'Every day', 'schedule' => ['repeat_minutes' => 5, 'timezone' => 'Europe/Berlin'], 'pause' => true,
             'steps' => [['type' => 'navigate', 'text' => 'Open the booking page'], ['type' => 'check', 'text' => 'Check availability']],
             'notifications' => [['channel' => 'slack', 'trigger' => 'failure', 'step' => null, 'destination' => 'https://hooks.slack.com/services/test', 'message' => 'Flow failed']],
         ];

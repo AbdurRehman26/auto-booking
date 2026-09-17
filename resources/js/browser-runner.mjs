@@ -1,9 +1,10 @@
+import {configureNotificationProviders} from '../../public/step-notification.js';
 import { executeNotification } from './browser-notifications.mjs';
 import { requestDecision, clickAndFollow, isNavigationAction } from './browser-requests.mjs';
 import { executeWait } from '../../public/step-wait.js';
 import { verifyPage, capturePageState } from './browser-verification.mjs';
 import { chromium } from 'playwright';
-import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
+import { readFileSync, appendFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { findClickTarget, parseIconClick } from './browser-targets.mjs';
 import { publicUrl } from './browser-safety.mjs';
 import { dismissOptionalCookies } from './browser-cookies.mjs';
@@ -12,6 +13,7 @@ import { chooseBranch, executeScroll } from '../../public/step-types.js';
 
 const directory = process.argv[2];
 const input = JSON.parse(readFileSync(join(directory, 'input.json'), 'utf8'));
+configureNotificationProviders(input.notification_providers);
 const state = JSON.parse(readFileSync(join(directory, 'state.json'), 'utf8'));
 let browser, page, heartbeat, deadline, capturing = false, finished = false, interrupted = '';
 let approvedNavigation = null;
@@ -70,6 +72,12 @@ function targetText(instruction, type) {
 }
 async function execute(step, index) {
   assertRunning();
+  if(step.type==='record') {
+    const message=step.text.trim().replace(/^Save to database:\s*/i,'');
+    if(!message) throw new NeedsInput('Write the message to save to the database.');
+    appendFileSync(join(directory,'records.jsonl'),JSON.stringify({step_number:index+1,message,page_url:page?.url()||null,created_at:new Date().toISOString()})+'\n');
+    return 'Record captured. It will be saved to your database when this run finishes.';
+  }
   if(step.type==='notify') return executeNotification(step.text,{live:input.send_notifications===true,shouldStop:()=>stopped() || !!interrupted});
   await checkpoint();
   if (step.type === 'scroll') {
@@ -80,7 +88,7 @@ async function execute(step, index) {
     let branch;
     try {branch=await chooseBranch(page,step.text);} catch(error) {throw new NeedsInput(error.message);}
     state.message = `${branch.matched?'Then':'Else'} branch: ${branch.action.type==='notify'?'Send notification':branch.action.text}`;
-    step.detail = `“${branch.condition}” ${branch.matched?'is visible':'is not visible'} → ${branch.matched?'Then':'Else'}: ${branch.action.type==='notify'?'Send notification':branch.action.text}`;
+    step.detail = `“${branch.condition}” ${branch.matched?'is true':'is false'} → ${branch.matched?'Then':'Else'}: ${branch.action.type==='notify'?'Send notification':branch.action.text}`;
     publish();
     const result=await execute(branch.action,index);
     return `${step.detail}. ${result}`;

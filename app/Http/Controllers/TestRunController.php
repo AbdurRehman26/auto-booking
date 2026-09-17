@@ -6,6 +6,7 @@ use App\Http\Requests\StartTestRunRequest;
 use App\Jobs\ExecuteTestRun;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -15,10 +16,12 @@ class TestRunController extends Controller
     {
         $id = (string) Str::uuid();
         $data = $request->safe()->only(['url', 'steps', 'send_notifications']);
+        $data['user_id'] = $request->user()->id;
+        $data['notification_providers'] = json_decode(DB::table('editor_configurations')->where('key', 'notification_providers')->value('value'), true, 512, JSON_THROW_ON_ERROR);
         $state = ['id' => $id, 'status' => 'queued', 'message' => 'Starting a fresh browser…', 'url' => $data['url'], 'currentStep' => null, 'startedAt' => now()->getTimestampMs(), 'steps' => array_map(fn (array $step): array => [...$step, 'status' => 'pending'], $data['steps'])];
         Storage::disk('local')->put("test-runs/$id/input.json", json_encode($data, JSON_THROW_ON_ERROR));
         Storage::disk('local')->put("test-runs/$id/state.json", json_encode($state, JSON_THROW_ON_ERROR));
-        $request->session()->put("test_runs.$id", true);
+        $request->session()->put("test_runs.$id", $request->user()->id);
         ExecuteTestRun::dispatch($id);
 
         return response()->json($state, 202)->header('Cache-Control', 'no-store');
@@ -49,7 +52,7 @@ class TestRunController extends Controller
 
     private function state(Request $request, string $run): array
     {
-        abort_unless(app()->environment('local', 'testing') && $request->session()->get("test_runs.$run"), 404);
+        abort_unless(app()->environment('local', 'testing') && $request->session()->get("test_runs.$run") === $request->user()->id, 404);
         abort_unless(Storage::disk('local')->exists("test-runs/$run/state.json"), 404);
 
         return json_decode(Storage::disk('local')->get("test-runs/$run/state.json"), true, flags: JSON_THROW_ON_ERROR);

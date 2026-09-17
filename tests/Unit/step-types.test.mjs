@@ -1,3 +1,9 @@
+import {readFileSync} from 'node:fs';
+import {configureStepTypes} from '../../public/step-types.js';
+import {configureNotificationProviders} from '../../public/step-notification.js';
+const catalog=JSON.parse(readFileSync(new URL('../../database/seeders/editor-configuration.json',import.meta.url),'utf8'));
+configureStepTypes(catalog.step_types);
+configureNotificationProviders(catalog.notification_providers);
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {stepTypes,parseStep,parseConditional,formatConditional,defaultConditional,chooseBranch} from '../../public/step-types.js';
@@ -17,7 +23,7 @@ test('text mode recognizes branch steps and keeps free text as instruction',()=>
   assert.equal(parseStep('Verify "Available"').type,'check');
 });
 test('visible condition selects Then, missing or hidden text selects Else',async()=>{
-  const text=formatConditional(defaultConditional());
+  const text=formatConditional({...defaultConditional(),condition:"Expected text"});
   for(const [states,expected] of [[[true],'click'],[[false,true],'click'],[[],'review'],[[false],'review']]) {
     const page={getByText:(value,options)=>{assert.equal(value,'Expected text');assert.equal(options.exact,true);return {all:async()=>states.map(visible=>({isVisible:async()=>visible}))};}};
     assert.equal((await chooseBranch(page,text)).action.type,expected);

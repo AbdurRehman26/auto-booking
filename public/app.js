@@ -1,24 +1,10 @@
-import {notificationProviders,parseNotification,formatNotification,notificationTitle} from './step-notification.js';
+import {configureNotificationProviders,notificationProviders,parseNotification,formatNotification,notificationTitle} from './step-notification.js';
 import {parseWait} from './step-wait.js';
 import {moveStep, copyStep, bindStepDragging} from './step-reorder.js';
-import {stepTypes, parseScroll, parseStep, parseConditional, formatConditional, defaultConditional} from './step-types.js';
-const icons = { navigate: "↗", click: "⌁", check: "✓", enter: "Aa", wait: "◷", review: "◉", instruction:"≡", condition:"⑂", scroll:"↕", notify:"✉" };
-const labels = { navigate: "OPEN PAGE", click: "CLICK ELEMENT", check: "VERIFY PAGE", enter: "ENTER INFORMATION", wait: "WAIT", review: "HUMAN REVIEW", instruction:"JUST INSTRUCTION", condition:"IF / ELSE", scroll:"SCROLL", notify:"SEND NOTIFICATION" };
-const channelIcons = { email:"@", slack:"#", whatsapp:"◉", webhook:"↗" };
-const triggerLabels = { failure:"On failure", availability:"Availability found", complete:"Flow complete", step:"After step" };
-const starter = {
-  id: crypto.randomUUID(), name: "Düsseldorf driving licence", status: "Draft",
-  url: "https://termine.duesseldorf.de/select2?md=3", interval: "Every 5 minutes", pause: true,
-  notifications: [], steps: [
-    {type:"navigate", text:"Go to the Düsseldorf appointment page"},
-    {type:"click", text:"Choose the required driving licence service"},
-    {type:"check", text:"Check that the selected concern appears in the summary"},
-    {type:"click", text:"Continue and choose an available location"},
-    {type:"wait", text:"If no appointment is available, stop and retry later"},
-    {type:"review", text:"Pause for review before entering personal data or booking"}
-  ]
-};
+import {configureStepTypes,stepTypes, parseScroll, parseStep, parseConditional, formatConditional, defaultConditional} from './step-types.js';
+let icons = {}, labels = {}, channelIcons = {}, triggerLabels = {}, editorConfiguration;
 let flows = [];
+let channels = [], currentSection = 'flows', editingChannel = null;
 let activeId = null;
 let runTimer;
 const $ = s => document.querySelector(s);
@@ -26,6 +12,7 @@ const active = () => flows.find(f=>f.id===activeId);
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
 async function api(path, options={}) {
   const response=await fetch(path,{...options,headers:{'Accept':'application/json','Content-Type':'application/json','X-CSRF-TOKEN':csrf,...options.headers}});
+  if(response.status===401 || response.status===419) {window.location.assign('/login');throw new Error('Please sign in again.');}
   if(!response.ok) throw new Error((await response.json().catch(()=>({message:'Request failed'}))).message||'Request failed');
   return response.status===204?null:response.json();
 }
@@ -48,20 +35,38 @@ const save = () => {
 };
 const esc = s => String(s).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
 
+function stepEditor(step,index,path='') {
+  const content=step.type==='record'?`<textarea class="step-instruction record-message" rows="3" maxlength="6000" placeholder="Write what you want to save for later…" aria-label="Step ${index+1} saved message">${esc(step.text)}</textarea>`:step.type==='notify'?notificationEditor(step,index):step.type==='condition'?conditionalEditor(step,index,path):step.type==='scroll'?scrollEditor(step,index):step.type==='wait'?waitEditor(step,index):`<input class="step-instruction" value="${esc(step.text)}" aria-label="Step ${index+1} instruction">`;
+  return `<div data-step-path="${path}">${content}</div>`;
+}
+function editStep(target,change) {
+  const root=active().steps[+target.closest('.step').dataset.index];
+  const path=target.closest('[data-step-path]').dataset.stepPath.split('.').filter(Boolean);
+  function update(step,remaining) {
+    if(!remaining.length) {change(step);return;}
+    const value=parseConditional(step.text);
+    update(value[remaining[0]],remaining.slice(1));
+    step.text=formatConditional(value);
+  }
+  update(root,path);save();
+}
+function notificationConfiguration(text) {
+  return parseNotification(text)||{...parseNotification(stepTypes.notify.text),message:text};
+}
 function notificationEditor(step,index) {
-  const value=parseNotification(step.text);
-  if(!value) return `<input class="step-instruction" value="${esc(step.text)}" aria-label="Step ${index+1}"><small class="condition-help">Choose Send notification from Add another step to configure a provider.</small>`;
+  const value=notificationConfiguration(step.text);
   const meta=notificationProviders[value.provider];
-  return `<div class="notification-step-editor"><label>Provider<select data-notification-field="provider" aria-label="Step ${index+1} provider">${Object.entries(notificationProviders).map(([provider,item])=>`<option value="${provider}" ${provider===value.provider?'selected':''}>${item.label}</option>`).join('')}</select></label><label>${meta.destination}<input data-notification-field="destination" value="${esc(value.destination)}" placeholder="${esc(meta.placeholder)}" aria-label="Step ${index+1} destination" autocomplete="off"></label><label>Message<textarea data-notification-field="message" maxlength="1600" rows="3" aria-label="Step ${index+1} message">${esc(value.message)}</textarea></label><small class="condition-help">${meta.help}</small><small class="condition-help">Test runs preview this message unless you enable delivery beside Test run.</small></div>`;
+  return `<div class="notification-step-editor">${channels.length?`<label>Use saved channel<select data-saved-channel><option value="">Choose a channel…</option>${channels.map(channel=>`<option value="${channel.id}">${esc(channel.name)} · ${esc(notificationProviders[channel.provider]?.label||channel.provider)}</option>`).join('')}</select></label><small class="condition-help">Copies the saved destination into this step. Later channel edits won’t change existing steps.</small>`:''}<label>Provider<select data-notification-field="provider" aria-label="Step ${index+1} provider">${Object.entries(notificationProviders).map(([provider,item])=>`<option value="${provider}" ${provider===value.provider?'selected':''}>${esc(item.label)}</option>`).join('')}</select></label><label>${esc(meta.destination)}<input type="${['url','email','tel'].includes(meta.input_type)?meta.input_type:'text'}" required data-notification-field="destination" value="${esc(value.destination)}" placeholder="${esc(meta.placeholder)}" aria-label="Step ${index+1} destination" autocomplete="off"></label>${meta.subject?`<label>Subject<input data-notification-field="subject" value="${esc(value.subject||'')}" placeholder="Appointment update" maxlength="200" required aria-label="Step ${index+1} email subject"></label>`:''}<label>Message<textarea data-notification-field="message" maxlength="1600" rows="3" aria-label="Step ${index+1} message">${esc(value.message)}</textarea></label><small class="condition-help">${esc(meta.help)}</small><small class="condition-help">Test runs preview this message unless you enable delivery beside Test run.</small></div>`;
 }
 function updateNotificationStep(event) {
-  const step=active().steps[+event.target.closest('.step').dataset.index];
-  const value=parseNotification(step.text);
+  editStep(event.target,step=>{
+  const value=notificationConfiguration(step.text);
   const field=event.target.dataset.notificationField;
   value[field]=event.target.value;
-  if(field==='provider') value.destination='';
-  step.text=formatNotification(value);save();
-  if(field==='provider') render();
+  if(field==='provider') {value.destination='';if(value.provider==='email') value.subject='Appointment update';else delete value.subject;}
+  step.text=formatNotification(value);
+  });
+  if(event.target.dataset.notificationField==='provider') render();
 }
 function stepTitle(step) {return step.type==='notify'?notificationTitle(step.text):step.text;}
 function waitEditor(step,index) {
@@ -75,25 +80,61 @@ function scrollEditor(step,index) {
   return `<div class="scroll-editor"><label>Direction<select data-scroll-field="direction" aria-label="Step ${index+1} scroll direction"><option value="down" ${value.direction==='down'?'selected':''}>Down</option><option value="up" ${value.direction==='up'?'selected':''}>Up</option></select></label><label>Distance (pixels)<input type="number" min="1" max="5000" step="1" data-scroll-field="distance" value="${value.distance}" aria-label="Step ${index+1} scroll distance"></label></div>`;
 }
 function updateScroll(event) {
-  const card=event.target.closest('.step');
+  const card=event.target.closest('[data-step-path]');
   const distance=card.querySelector('[data-scroll-field="distance"]');
   if(!distance.checkValidity() || !distance.value) {distance.reportValidity();return;}
-  active().steps[+card.dataset.index].text=`Scroll ${card.querySelector('[data-scroll-field="direction"]').value} ${distance.value} pixels`;
-  save();
+  editStep(event.target,step=>{step.text=`Scroll ${card.querySelector('[data-scroll-field="direction"]').value} ${distance.value} pixels`;});
 }
-function conditionalEditor(step, index) {
+function stepChoices(attribute='data-step-type') {
+  return Object.entries(stepTypes).map(([type,meta])=>`<button class="step-choice" ${attribute}="${esc(type)}"><span class="step-icon" aria-hidden="true">${esc(meta.icon)}</span><span><strong>${esc(meta.label)}</strong><small>${esc(meta.description)}</small></span></button>`).join('');
+}
+function stepCard(step,index,path='') {
+  return `<div class="step-card"><div class="step-icon">${esc(icons[step.type]||'•')}</div><div class="step-copy"><strong>${esc(labels[step.type]||'ACTION')}</strong>${stepEditor(step,index,path)}</div></div>`;
+}
+function conditionalEditor(step, index, path) {
   const value=parseConditional(step.text);
   if(!value) return `<input class="step-instruction" value="${esc(step.text)}" aria-label="Step ${index+1}"><small class="condition-help">Use: If "Text" is visible then click: "Click label" else review: "Pause"</small>`;
-  const options=selected=>Object.entries(stepTypes).filter(([type])=>type!=='condition').map(([type,meta])=>`<option value="${type}" ${type===selected?'selected':''}>${meta.label}</option>`).join('');
-  return `<div class="condition-editor"><label>If this text is visible<input data-condition-field="condition" value="${esc(value.condition)}" aria-label="Step ${index+1} condition"></label>${['then','else'].map(branch=>`<div class="condition-branch"><span>${branch==='then'?'THEN':'ELSE'}</span><select data-condition-field="${branch}.type" aria-label="Step ${index+1} ${branch} action">${options(value[branch].type)}</select><input data-condition-field="${branch}.text" value="${esc(value[branch].text)}" aria-label="Step ${index+1} ${branch} instruction"></div>`).join('')}</div>`;
+  return `<div class="condition-editor"><label>If<input placeholder='Button "Continue" is shown, or error message is shown' data-condition-field="condition" value="${esc(value.condition)}" aria-label="Step ${index+1} condition"></label>${['then','else'].map(branch=>{
+    const branchPath=[path,branch].filter(Boolean).join('.');
+    const pickerId=`branch-picker-${index}-${branchPath.replaceAll('.','-')}`;
+    return `<div class="condition-branch" data-branch="${branch}"><div class="branch-heading"><span>${branch==='then'?'THEN':'ELSE'}</span><button class="step-duplicate branch-change" aria-expanded="false" aria-controls="${pickerId}" aria-label="Change ${branchPath} step">Change step</button></div>${stepCard(value[branch],index,branchPath)}<div id="${pickerId}" class="step-picker branch-picker hidden"><div class="step-picker-head"><strong>Choose a step</strong><button class="branch-picker-close" aria-label="Close step choices">×</button></div><div class="step-choices">${stepChoices('data-branch-type')}</div></div></div>`;
+  }).join('')}</div>`;
+}
+function bindBranchPickers() {
+  document.querySelectorAll('.branch-change').forEach(button=>button.onclick=()=>{
+    const picker=document.getElementById(button.getAttribute('aria-controls'));
+    const opening=picker.classList.contains('hidden');
+    picker.classList.toggle('hidden',!opening);button.setAttribute('aria-expanded',String(opening));
+    if(opening) picker.querySelector('.step-choice').focus();
+  });
+  document.querySelectorAll('.branch-picker').forEach(picker=>{
+    const close=()=>{picker.classList.add('hidden');const button=picker.parentElement.querySelector('.branch-change');button.setAttribute('aria-expanded','false');button.focus();};
+    picker.querySelector('.branch-picker-close').onclick=close;
+    picker.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();close();}};
+  });
+  document.querySelectorAll('[data-branch-type]').forEach(button=>button.onclick=()=>{
+    const branch=button.closest('[data-branch]').dataset.branch;
+    const path=[button.closest('[data-step-path]').dataset.stepPath,branch].filter(Boolean).join('.');
+    const index=button.closest('.step').dataset.index;
+    editStep(button,step=>{
+      const value=parseConditional(step.text);
+      const type=button.dataset.branchType;
+      if(value[branch].type!==type) value[branch]={type,text:stepTypes[type].text};
+      step.text=formatConditional(value);
+    });
+    render();
+    document.querySelector(`[data-index="${index}"] [data-step-path="${path}"] input`)?.focus();
+  });
 }
 function updateConditional(event) {
-  const step=active().steps[+event.target.closest('.step').dataset.index];
-  const value=parseConditional(step.text)||defaultConditional();
   const [branch,field]=event.target.dataset.conditionField.split('.');
-  if(field) value[branch][field]=event.target.value;
-  else value.condition=event.target.value;
-  step.text=formatConditional(value);save();
+  editStep(event.target,step=>{
+    const value=parseConditional(step.text)||defaultConditional();
+    if(field) value[branch]={type:event.target.value,text:stepTypes[event.target.value].text};
+    else value.condition=event.target.value;
+    step.text=formatConditional(value);
+  });
+  if(field) render();
 }
 function closeStepPicker() {
   $('#stepPicker').classList.add('hidden');
@@ -107,30 +148,64 @@ function reorderStep(from,to) {
   handle.scrollIntoView({block:'nearest'});
   $('#reorderStatus').textContent=`Step ${from+1} moved to position ${to+1}.`;
 }
+function renderSchedule() {
+  const flow=active();
+  const fields=editorConfiguration.schedule_fields[flow.interval]||[];
+  const value={...editorConfiguration.schedule_defaults,...flow.schedule};
+  const repeat=Number(value.repeat_minutes||0);
+  const options=editorConfiguration.schedule_repeat_options;
+  const custom=value.repeat_custom || !(String(repeat) in options);
+  const repeatEditor=fields.length?`<label class="field"><span>Time / interval</span><select id="scheduleRepeat">${Object.entries(options).map(([key,label])=>`<option value="${esc(key)}" ${(custom?key==='custom':key===String(repeat))?'selected':''}>${esc(label)}</option>`).join('')}</select></label>${custom?`<label class="field"><span>Repeat every (minutes)</span><input data-schedule-field="repeat_minutes" type="number" min="1" max="1440" step="1" required value="${repeat||1}"></label>`:''}` : '';
+  $('#scheduleFields').innerHTML=(fields.includes('days')?`<fieldset class="schedule-days"><legend>Choose one or more days</legend>${Object.entries(editorConfiguration.schedule_days).sort(([a],[b])=>(Number(a)||7)-(Number(b)||7)).map(([day,label])=>`<label><input type="checkbox" data-schedule-field="days" value="${day}" ${(value.days||[]).map(Number).includes(Number(day))?'checked':''}>${esc(label)}</label>`).join('')}</fieldset>`:'')+(fields.includes('date')?`<label class="field"><span>Date</span><input type="date" data-schedule-field="date" value="${esc(value.date||'')}" required></label>`:'')+repeatEditor+(fields.includes('time')&&!repeat?`<label class="field"><span>Time</span><input type="time" data-schedule-field="time" value="${esc(value.time)}" required></label>`:'')+(fields.length?`<label class="field"><span>Timezone</span><select data-schedule-field="timezone">${editorConfiguration.timezones.map(zone=>`<option ${zone===value.timezone?'selected':''}>${esc(zone)}</option>`).join('')}</select></label>`:'' )+(repeat?`<small class="condition-help">Repeats every ${repeat} minute${repeat===1?'':'s'} throughout the selected days, starting at midnight in this timezone.</small>`:'');
+  if($('#scheduleRepeat')) $('#scheduleRepeat').onchange=event=>{
+    flow.schedule={...value,repeat_minutes:event.target.value==='custom'?1:Number(event.target.value),repeat_custom:event.target.value==='custom'};
+    if(flow.schedule.repeat_minutes) delete flow.schedule.time;
+    renderSchedule();save();
+  };
+  document.querySelectorAll('[data-schedule-field]').forEach(input=>input.onchange=()=>{
+    if(!input.checkValidity()) {input.reportValidity();return;}
+    const updated={...value,...active().schedule,[input.dataset.scheduleField]:input.dataset.scheduleField==='days'?[...document.querySelectorAll('[data-schedule-field="days"]:checked')].map(field=>Number(field.value)):input.dataset.scheduleField==='repeat_minutes'?Number(input.value):input.value};
+    const keys=[...fields.filter(key=>key!=='time'||!Number(updated.repeat_minutes)),'timezone',...(updated.repeat_minutes!==undefined?['repeat_minutes','repeat_custom']:[])];
+    active().schedule=Object.fromEntries(keys.filter(key=>updated[key]!==undefined).map(key=>[key,updated[key]]));
+    if(fields.includes('days') && !updated.days.length) {toast('Choose at least one day');return;}
+    if([...document.querySelectorAll('[data-schedule-field]')].every(field=>field.checkValidity())) save();
+    if(input.dataset.scheduleField==='repeat_minutes') renderSchedule();
+  });
+}
 function render(){
   const flow=active();
   closeStepPicker();
+  document.querySelector('.canvas').style.display=flow&&currentSection==='flows'?'':'none';
+  document.querySelector('.inspector').style.display=flow&&currentSection==='flows'?'':'none';
+  $('#runBtn').disabled=!flow;
+  if(!flow) {$('#flowList').textContent='No workflows yet. Choose New flow to begin.';return;}
   flow.notifications ||= [];
   $("#flowList").innerHTML=flows.map(f=>`<button class="flow-item ${f.id===activeId?'active':''}" data-id="${f.id}"><i></i><span>${esc(f.name)}<small>${f.steps.length} steps · ${f.status}</small></span></button>`).join("");
   $("#flowName").value=flow.name; $("#startUrl").value=flow.url; $("#interval").value=flow.interval;
+  renderSchedule();
   $("#flowMeta").textContent=`${flow.steps.length} steps · Saved in database`;
-  $("#steps").innerHTML=flow.steps.map((s,i)=>`<div class="step" data-index="${i}"><button class="step-number step-drag" aria-label="Move step ${i+1}" aria-describedby="reorderHelp" title="Drag to move · Arrow keys to reorder"><span class="drag-grip" aria-hidden="true">⠿</span><span>${String(i+1).padStart(2,'0')}</span></button><div class="step-card"><div class="step-icon">${icons[s.type]||'•'}</div><div class="step-copy"><strong>${labels[s.type]||'ACTION'}</strong>${s.type==='notify'?notificationEditor(s,i):s.type==='condition'?conditionalEditor(s,i):s.type==='scroll'?scrollEditor(s,i):s.type==='wait'?waitEditor(s,i):`<input class="step-instruction" value="${esc(s.text)}" aria-label="Step ${i+1}">`}</div></div><div class="step-actions"><button class="step-duplicate" title="Copy step" aria-label="Copy step ${i+1}">Copy</button><button class="step-menu" title="Remove step" aria-label="Remove step ${i+1}">×</button></div></div>`).join("");
-  $("#flowText").value=flow.steps.map((s,i)=>`${i+1}. ${s.text}`).join("\n");
+  $("#steps").innerHTML=flow.steps.map((s,i)=>`<div class="step" data-index="${i}"><button class="step-number step-drag" aria-label="Move step ${i+1}" aria-describedby="reorderHelp" title="Drag to move · Arrow keys to reorder"><span class="drag-grip" aria-hidden="true">⠿</span><span>${String(i+1).padStart(2,'0')}</span></button>${stepCard(s,i)}<div class="step-actions"><button class="step-duplicate" title="Copy step" aria-label="Copy step ${i+1}">Copy</button><button class="step-menu" title="Remove step" aria-label="Remove step ${i+1}">×</button></div></div>`).join("");
+  $("#flowText").value=flow.steps.map((s,i)=>`${i+1}. ${s.type==='record'?'Save to database: ':''}${s.text}`).join("\n");
   $("#pauseToggle").classList.toggle("on",flow.pause);
   $("#notificationList").innerHTML=flow.notifications.length?flow.notifications.map((n,i)=>`<div class="notification-item"><span class="channel-icon">${channelIcons[n.channel]}</span><span><strong>${esc(n.channel)} · ${triggerLabels[n.trigger]}</strong><small>${esc(n.destination)}</small></span><button data-notify-index="${i}" aria-label="Remove notification">×</button></div>`).join(''):`<div class="notification-empty">No alerts yet. Add one for failures, availability, or a specific step.</div>`;
   const score=Math.min(100,55+flow.steps.length*6+(flow.url.startsWith('http')?7:0)); $("#score").textContent=score;
   $("#readinessText").textContent=flow.steps.length&&flow.url?"All steps look valid.":"Add a URL and at least one step.";
   document.querySelectorAll('.flow-item').forEach(b=>b.onclick=()=>{activeId=+b.dataset.id;render()});
-  document.querySelectorAll('.step-instruction').forEach(input=>input.oninput=e=>{active().steps[+e.target.closest('.step').dataset.index].text=e.target.value;save()});
+  document.querySelectorAll('.step-instruction').forEach(input=>input.oninput=e=>{editStep(e.target,step=>{step.text=e.target.value;})});
   bindStepDragging($('#steps'),reorderStep);
+  bindBranchPickers();
+  document.querySelectorAll('[data-saved-channel]').forEach(input=>input.onchange=()=>{
+    const channel=channels.find(item=>item.id===Number(input.value));if(!channel)return;
+    editStep(input,step=>{const value=notificationConfiguration(step.text);step.text=formatNotification({...value,provider:channel.provider,destination:channel.destination,...(channel.provider==='email'?{subject:value.subject||'Appointment update'}:{})});});render();
+  });
   document.querySelectorAll('[data-notification-field]').forEach(input=>input.oninput=updateNotificationStep);
   document.querySelectorAll('[data-wait-duration]').forEach(input=>input.oninput=()=>{
     if(!input.value || !input.checkValidity()) return;
-    active().steps[+input.closest('.step').dataset.index].text=`Wait ${input.value} seconds`;save();
+    editStep(input,step=>{step.text=`Wait ${input.value} seconds`;});
   });
   document.querySelectorAll('[data-scroll-field]').forEach(input=>input.oninput=updateScroll);
   document.querySelectorAll('[data-condition-field]').forEach(input=>input.oninput=updateConditional);
-  document.querySelectorAll('.step-duplicate').forEach(button=>button.onclick=()=>{
+  document.querySelectorAll('.step-actions > .step-duplicate').forEach(button=>button.onclick=()=>{
     const index=Number(button.closest('.step').dataset.index);
     if(!copyStep(active(),index)) return;
     save();render();
@@ -143,7 +218,7 @@ function render(){
   document.querySelectorAll('[data-notify-index]').forEach(b=>b.onclick=()=>{active().notifications.splice(+b.dataset.notifyIndex,1);save();render();toast('Notification removed')});
 }
 
-async function newFlow(){try{const f=await api('/api/workflows',{method:'POST',body:JSON.stringify({name:"Untitled booking flow",status:"Draft",url:"",interval:"Manual only",pause:true,notifications:[],steps:[]})});flows.unshift(f);activeId=f.id;render();toast('New flow created')}catch(e){toast(e.message)}}
+async function newFlow(){try{const f=await api('/api/workflows',{method:'POST',body:JSON.stringify(editorConfiguration.workflow_defaults)});flows.unshift(f);activeId=f.id;render();toast('New flow created')}catch(e){toast(e.message)}}
 function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800)}
 function switchMode(mode){document.querySelectorAll('.mode-switch button').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));$("#visualMode").classList.toggle('hidden',mode!=='visual');$("#textMode").classList.toggle('hidden',mode!=='text')}
 let currentRun = null;
@@ -255,14 +330,14 @@ async function stopRun(close=false) {
 function openNotify(){
   const f=active();
   $("#notifyStep").innerHTML=f.steps.map((s,i)=>`<option value="${i}">${i+1}. ${esc(s.text)}</option>`).join('');
-  $("#notifyChannel").value='email'; $("#notifyTrigger").value='failure'; $("#notifyDestination").value='';
-  $("#notifyMessage").value='Appointment update for {{flow_name}}: {{status}}';
+  $("#notifyChannel").value=editorConfiguration.notification_defaults.channel; $("#notifyTrigger").value=editorConfiguration.notification_defaults.trigger; $("#notifyDestination").value='';
+  $("#notifyMessage").value=editorConfiguration.notification_defaults.message;
   updateNotifyFields(); $("#notifyModal").classList.remove('hidden');
 }
 function updateNotifyFields(){
   const channel=$("#notifyChannel").value;
-  const configs={email:['Email address','you@example.com'],slack:['Slack webhook URL','https://hooks.slack.com/services/…'],whatsapp:['WhatsApp number','+49 123 456789'],webhook:['Webhook URL','https://example.com/hooks/…']};
-  $("#destinationLabel").textContent=configs[channel][0]; $("#notifyDestination").placeholder=configs[channel][1];
+  const config=editorConfiguration.channels[channel];
+  $('#destinationLabel').textContent=config.destination; $('#notifyDestination').placeholder=config.placeholder;
   $("#stepTargetField").classList.toggle('hidden',$("#notifyTrigger").value!=='step');
 }
 function saveNotification(){
@@ -274,7 +349,6 @@ function saveNotification(){
 }
 
 $("#newFlowBtn").onclick=$("#addFlowSmall").onclick=newFlow;
-$('#stepChoices').innerHTML=Object.entries(stepTypes).map(([type,meta])=>`<button class="step-choice" data-step-type="${type}"><span class="step-icon" aria-hidden="true">${meta.icon}</span><span><strong>${meta.label}</strong><small>${meta.description}</small></span></button>`).join('');
 $('#addStepBtn').onclick=()=>{
   const opening=$('#stepPicker').classList.contains('hidden');
   $('#stepPicker').classList.toggle('hidden',!opening);
@@ -282,18 +356,17 @@ $('#addStepBtn').onclick=()=>{
   if(opening) $('#stepChoices button').focus();
 };
 $('#closeStepPicker').onclick=()=>{closeStepPicker();$('#addStepBtn').focus();};
-document.querySelectorAll('[data-step-type]').forEach(button=>button.onclick=()=>{
-  const type=button.dataset.stepType;
-  active().steps.push({type,text:stepTypes[type].text});
-  save();render();
-  const last=$('#steps').lastElementChild;
-  last.querySelector('input')?.focus();
-  last.scrollIntoView({block:'nearest'});
-});
 $('#stepPicker').onkeydown=event=>{if(event.key==='Escape'){closeStepPicker();$('#addStepBtn').focus();}};
 $("#flowName").onchange=e=>{active().name=e.target.value.trim()||'Untitled flow';save();render()};
 $("#startUrl").onchange=e=>{active().url=e.target.value.trim();save();render()};
-$("#interval").onchange=e=>{active().interval=e.target.value;save()};
+$("#interval").onchange=e=>{
+  const flow=active();flow.interval=e.target.value;
+  const fields=editorConfiguration.schedule_fields[flow.interval]||[];
+  const value={...editorConfiguration.schedule_defaults,...flow.schedule};
+  if(fields.includes('date') && !value.date) value.date=new Intl.DateTimeFormat('en-CA',{timeZone:value.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  flow.schedule=fields.length?Object.fromEntries([...fields.filter(key=>key!=='time'||!Number(value.repeat_minutes)),'timezone','repeat_minutes','repeat_custom'].filter(key=>value[key]!==undefined).map(key=>[key,value[key]])):null;
+  renderSchedule();save();
+};
 $("#pauseToggle").onclick=()=>{active().pause=!active().pause;save();render()};
 $("#applyTextBtn").onclick=()=>{const parsed=$("#flowText").value.split('\n').map(parseStep).filter(Boolean);if(!parsed.length){toast('Write at least one instruction');return}active().steps=parsed;save();render();switchMode('visual');toast(`${parsed.length} steps created`)};
 document.querySelectorAll('.mode-switch button').forEach(b=>b.onclick=()=>switchMode(b.dataset.mode));
@@ -322,11 +395,90 @@ $("#notifyChannel").onchange=$("#notifyTrigger").onchange=updateNotifyFields;
 $("#saveNotify").onclick=saveNotification;
 document.querySelectorAll('[data-var]').forEach(b=>b.onclick=()=>{$("#notifyMessage").value+=`${$("#notifyMessage").value?' ':''}${b.dataset.var}`});
 $("#notifyModal").onclick=e=>{if(e.target===$("#notifyModal"))$("#closeNotify").click()};
+function showSection(section) {
+  currentSection=section;
+  $('#channelsPage').classList.toggle('hidden',section!=='channels');
+  $('#recordsPage').classList.toggle('hidden',section!=='records');
+  if(section==='records') loadRecords();
+  document.querySelector('.intro-actions').classList.toggle('hidden',section!=='flows');
+  document.querySelector('.sidebar .side-heading').classList.toggle('hidden',section!=='flows');
+  $('#flowList').classList.toggle('hidden',section!=='flows');
+  for(const [id,name] of [['myFlowsNav','flows'],['channelsNav','channels'],['recordsNav','records']]) {
+    $(`#${id}`).classList.toggle('active',section===name);
+    if(section===name) $(`#${id}`).setAttribute('aria-current','page');else $(`#${id}`).removeAttribute('aria-current');
+  }
+  render();
+}
+function renderChannels() {
+  $('#channelsList').innerHTML=channels.length?channels.map(channel=>`<article class="channel-card"><div class="step-icon">↗</div><div><h3>${esc(channel.name)}</h3><p>${esc(notificationProviders[channel.provider]?.label||channel.provider)} · Configured</p></div><div class="channel-actions"><button class="btn secondary" data-edit-channel="${channel.id}">Edit</button><button class="btn secondary" data-delete-channel="${channel.id}">Delete</button></div></article>`).join(''):`<div class="channels-empty"><h3>No channels yet</h3><p>Add a webhook, email address, or messaging destination to use in your flows.</p></div>`;
+  document.querySelectorAll('[data-edit-channel]').forEach(button=>button.onclick=()=>openChannel(channels.find(channel=>channel.id===Number(button.dataset.editChannel))));
+  document.querySelectorAll('[data-delete-channel]').forEach(button=>button.onclick=async()=>{
+    try {await api('/api/channels/'+button.dataset.deleteChannel,{method:'DELETE'});channels=channels.filter(channel=>channel.id!==Number(button.dataset.deleteChannel));if(editingChannel===Number(button.dataset.deleteChannel))$('#channelForm').classList.add('hidden');renderChannels();render();toast('Channel deleted');}catch(error){toast(error.message);}
+  });
+}
+function channelFields() {
+  const meta=notificationProviders[$('#channelProvider').value];
+  $('#channelDestinationLabel').textContent=meta.destination;
+  $('#channelDestination').type=['email','url','tel'].includes(meta.input_type)?meta.input_type:'text';
+  $('#channelDestination').placeholder=meta.placeholder;
+  $('#channelHelp').textContent=meta.help;
+}
+function openChannel(channel=null) {
+  editingChannel=channel?.id??null;
+  $('#channelFormTitle').textContent=channel?'Edit channel':'Add channel';
+  $('#channelName').value=channel?.name||'';
+  $('#channelProvider').innerHTML=Object.entries(notificationProviders).map(([key,value])=>`<option value="${esc(key)}">${esc(value.label)}</option>`).join('');
+  if(channel)$('#channelProvider').value=channel.provider;
+  $('#channelDestination').value=channel?.destination||'';
+  channelFields();$('#channelError').classList.add('hidden');$('#channelForm').classList.remove('hidden');$('#channelName').focus();
+}
+$('#myFlowsNav').onclick=()=>showSection('flows');
+$('#channelsNav').onclick=()=>showSection('channels');
+$('#recordsNav').onclick=()=>showSection('records');
+let recordsPage=1;
+async function loadRecords(page=1) {
+  try {const result=await api('/api/records?page='+page);recordsPage=page;$('#recordsList').innerHTML=result.data.length?result.data.map(record=>`<article class="channel-card"><div><small>${esc(new Date(record.created_at+'Z').toLocaleString())} · Step ${record.step_number}</small><p class="record-content">${esc(record.message)}</p><small>Run ${esc(record.run_id)}</small></div></article>`).join(''):'<p>No saved records yet. Add a Save to database step and run your flow.</p>';$('#recordsPrevious').disabled=page<=1;$('#recordsNext').disabled=page>=result.last_page;}catch(error){toast(error.message);}
+}
+$('#recordsPrevious').onclick=()=>loadRecords(recordsPage-1);
+$('#recordsNext').onclick=()=>loadRecords(recordsPage+1);
+$('#refreshRecords').onclick=()=>loadRecords();
+$('#newChannelBtn').onclick=()=>openChannel();
+$('#cancelChannel').onclick=()=>$('#channelForm').classList.add('hidden');
+$('#channelProvider').onchange=()=>{$('#channelDestination').value='';channelFields();};
+$('#channelForm').onsubmit=async event=>{
+  event.preventDefault();$('#saveChannel').disabled=true;
+  try {
+    const channel=await api(editingChannel?'/api/channels/'+editingChannel:'/api/channels',{method:editingChannel?'PUT':'POST',body:JSON.stringify({name:$('#channelName').value.trim(),provider:$('#channelProvider').value,destination:$('#channelDestination').value.trim()})});
+    channels=channels.filter(item=>item.id!==channel.id);channels.push(channel);channels.sort((a,b)=>a.name.localeCompare(b.name));
+    $('#channelForm').classList.add('hidden');renderChannels();render();toast('Channel saved');
+  }catch(error){$('#channelError').textContent=error.message;$('#channelError').classList.remove('hidden');}finally{$('#saveChannel').disabled=false;}
+};
 async function boot(){
   try{
+    editorConfiguration=await api('/api/editor-configuration');
+    configureStepTypes(editorConfiguration.step_types);
+    configureNotificationProviders(editorConfiguration.notification_providers);
+    icons=Object.fromEntries(Object.entries(stepTypes).map(([key,value])=>[key,value.icon]));
+    labels=Object.fromEntries(Object.entries(stepTypes).map(([key,value])=>[key,value.label.toUpperCase()]));
+    channelIcons=Object.fromEntries(Object.entries(editorConfiguration.channels).map(([key,value])=>[key,value.icon]));
+    triggerLabels=editorConfiguration.triggers;
+    $('#interval').innerHTML=editorConfiguration.intervals.map(value=>`<option>${esc(value)}</option>`).join('');
+    $('#notifyChannel').innerHTML=Object.entries(editorConfiguration.channels).map(([key,value])=>`<option value="${esc(key)}">${esc(value.label)}</option>`).join('');
+    $('#notifyTrigger').innerHTML=Object.entries(triggerLabels).map(([key,value])=>`<option value="${esc(key)}">${esc(value)}</option>`).join('');
+$('#stepChoices').innerHTML=stepChoices();
+document.querySelectorAll('[data-step-type]').forEach(button=>button.onclick=()=>{
+  const type=button.dataset.stepType;
+  active().steps.push({type,text:stepTypes[type].text});
+  save();render();
+  const last=$('#steps').lastElementChild;
+  last.querySelector('input')?.focus();
+  last.scrollIntoView({block:'nearest'});
+});
+
+    channels=await api('/api/channels');
+    renderChannels();
     flows=await api('/api/workflows');
-    if(!flows.length){const initial=structuredClone(starter);delete initial.id;flows=[await api('/api/workflows',{method:'POST',body:JSON.stringify(initial)})]}
-    activeId=flows[0].id;render();
-  }catch(e){toast(`Backend error: ${e.message}`)}
+    activeId=flows[0]?.id??null;render();
+  }catch(e){$('#runBtn').disabled=true;toast(`Could not load database settings: ${e.message}`)}
 }
 boot();

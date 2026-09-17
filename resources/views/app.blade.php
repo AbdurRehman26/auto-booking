@@ -19,6 +19,8 @@
           <span>TerminPilot</span>
         </a>
         <div class="top-actions">
+          <span class="account-email">{{ auth()->user()->email }}</span>
+          <form method="POST" action="/logout">@csrf<button class="btn secondary" type="submit">Sign out</button></form>
           <span class="status"><i></i> Local only</span>
           <button class="icon-btn" id="themeBtn" aria-label="Toggle theme">◐</button>
           <button class="avatar" aria-label="Profile">SK</button>
@@ -41,6 +43,11 @@
 
         <section class="workspace">
           <aside class="sidebar">
+            <nav class="sidebar-menu" aria-label="Main navigation">
+              <button id="myFlowsNav" class="active" aria-current="page">▤ <span>My flows</span></button>
+              <button id="channelsNav">↗ <span>Channels</span></button>
+              <button id="recordsNav">▤ <span>Saved records</span></button>
+            </nav>
             <div class="side-heading"><span>YOUR FLOWS</span><button id="addFlowSmall" aria-label="Add flow">＋</button></div>
             <div id="flowList" class="flow-list"></div>
             <div class="side-note">
@@ -49,11 +56,29 @@
             </div>
           </aside>
 
+          <section id="recordsPage" class="channels-page hidden">
+            <div class="channels-heading"><div><div class="eyebrow">RUN HISTORY</div><h2>Saved records</h2><p>Messages saved by your workflow steps.</p></div><button class="btn secondary" id="refreshRecords">Refresh</button></div>
+            <div id="recordsList" class="channels-list"></div>
+            <div class="modal-actions"><button id="recordsPrevious" class="btn secondary">Previous</button><button id="recordsNext" class="btn secondary">Next</button></div>
+          </section>
+          <section id="channelsPage" class="channels-page hidden" aria-labelledby="channelsTitle">
+            <div class="channels-heading"><div><div class="eyebrow">CONNECTIONS</div><h2 id="channelsTitle">Channels</h2><p>Save destinations to reuse in your notification steps.</p></div><button id="newChannelBtn" class="btn primary">＋ Add channel</button></div>
+            <form id="channelForm" class="channel-form hidden">
+              <h3 id="channelFormTitle">Add channel</h3>
+              <label class="field"><span>Name</span><input id="channelName" maxlength="160" placeholder="Team alerts" required></label>
+              <label class="field"><span>Provider</span><select id="channelProvider"></select></label>
+              <label class="field"><span id="channelDestinationLabel">Destination</span><input id="channelDestination" maxlength="2000" required autocomplete="off"></label>
+              <p id="channelHelp" class="condition-help"></p>
+              <p id="channelError" role="alert" class="auth-error hidden"></p>
+              <div class="modal-actions"><button id="cancelChannel" type="button" class="btn secondary">Cancel</button><button id="saveChannel" type="submit" class="btn primary">Save channel</button></div>
+            </form>
+            <div id="channelsList" class="channels-list"></div>
+          </section>
           <section class="canvas">
             <div class="canvas-head">
               <div>
-                <div class="title-row"><input id="flowName" value="Düsseldorf driving licence" aria-label="Workflow name"><span class="pill">DRAFT</span></div>
-                <p id="flowMeta">6 steps · Edited just now</p>
+                <div class="title-row"><input id="flowName" value="" aria-label="Workflow name"><span class="pill">DRAFT</span></div>
+                <p id="flowMeta">Loading from database…</p>
               </div>
               <div class="canvas-tools">
                 <button class="ghost" id="copyBtn">Copy</button>
@@ -87,7 +112,9 @@
           <aside class="inspector">
             <div class="inspector-head"><span>FLOW SETTINGS</span></div>
             <label class="field"><span>Start URL</span><input id="startUrl" type="url"></label>
-            <label class="field"><span>Check interval</span><select id="interval"><option>Every 5 minutes</option><option>Every 15 minutes</option><option>Every 30 minutes</option><option>Manual only</option></select></label>
+            <label class="field"><span>Days / date</span><select id="interval"></select></label>
+            <div id="scheduleFields"></div>
+            <p class="condition-help">Schedule settings are saved. Automatic scheduled runs are not enabled yet.</p>
             <div class="toggle-row"><div><strong>Pause on errors</strong><small>Wait for your input</small></div><button class="toggle on" id="pauseToggle" aria-label="Pause on errors"><i></i></button></div>
             <div class="toggle-row"><div><strong>Final review</strong><small>Required before booking</small></div><button class="toggle on locked" aria-label="Final review locked"><i></i></button></div>
             <div class="divider"></div>
@@ -132,8 +159,8 @@
         <h2 id="notifyTitle">Add a notification</h2>
         <p class="run-sub">Choose when it fires and where it should be delivered.</p>
         <div class="notify-grid">
-          <label class="field"><span>Channel</span><select id="notifyChannel"><option value="email">Email</option><option value="slack">Slack webhook</option><option value="whatsapp">WhatsApp</option><option value="webhook">Generic webhook</option></select></label>
-          <label class="field"><span>Trigger</span><select id="notifyTrigger"><option value="failure">When any step fails</option><option value="availability">When availability is found</option><option value="complete">When the flow completes</option><option value="step">After a specific step</option></select></label>
+          <label class="field"><span>Channel</span><select id="notifyChannel"></select></label>
+          <label class="field"><span>Trigger</span><select id="notifyTrigger"></select></label>
         </div>
         <label class="field hidden" id="stepTargetField"><span>After step</span><select id="notifyStep"></select></label>
         <label class="field"><span id="destinationLabel">Email address</span><input id="notifyDestination" autocomplete="off" placeholder="you@example.com"></label>

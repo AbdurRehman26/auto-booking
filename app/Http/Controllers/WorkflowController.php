@@ -5,44 +5,51 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreWorkflowRequest;
 use App\Models\Workflow;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class WorkflowController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        return response()->json(Workflow::with(['steps', 'notificationRules'])->latest()->get()->map(fn ($workflow) => $this->present($workflow)));
+        return response()->json($request->user()->workflows()->with(['steps', 'notificationRules'])->latest()->get()->map(fn ($workflow) => $this->present($workflow)));
     }
 
     public function store(StoreWorkflowRequest $request): JsonResponse
     {
         $workflow = DB::transaction(function () use ($request) {
-            $workflow = Workflow::create(['public_id' => Str::uuid(), ...$this->attributes($request->validated())]);
+            $workflow = $request->user()->workflows()->create(['public_id' => Str::uuid(), ...$this->attributes($request->validated())]);
             $this->syncChildren($workflow, $request->validated());
+
             return $workflow;
         });
+
         return response()->json($this->present($workflow->load(['steps', 'notificationRules'])), 201);
     }
 
     public function update(StoreWorkflowRequest $request, Workflow $workflow): JsonResponse
     {
+        abort_unless($workflow->user_id === $request->user()->id, 404);
         DB::transaction(function () use ($request, $workflow) {
             $workflow->update($this->attributes($request->validated()));
             $this->syncChildren($workflow, $request->validated());
         });
+
         return response()->json($this->present($workflow->fresh(['steps', 'notificationRules'])));
     }
 
-    public function destroy(Workflow $workflow): JsonResponse
+    public function destroy(Request $request, Workflow $workflow): JsonResponse
     {
+        abort_unless($workflow->user_id === $request->user()->id, 404);
         $workflow->delete();
+
         return response()->json(null, 204);
     }
 
     private function attributes(array $data): array
     {
-        return ['name' => $data['name'], 'status' => $data['status'] ?? 'Draft', 'start_url' => $data['url'] ?? null, 'check_interval' => $data['interval'], 'pause_on_error' => $data['pause']];
+        return ['name' => $data['name'], 'status' => $data['status'] ?? 'Draft', 'start_url' => $data['url'] ?? null, 'check_interval' => $data['interval'], 'pause_on_error' => $data['pause'], 'schedule' => $data['schedule'] ?? null];
     }
 
     private function syncChildren(Workflow $workflow, array $data): void
@@ -61,7 +68,7 @@ class WorkflowController extends Controller
     {
         return [
             'id' => $workflow->id, 'publicId' => $workflow->public_id, 'name' => $workflow->name, 'status' => $workflow->status,
-            'url' => $workflow->start_url ?? '', 'interval' => $workflow->check_interval, 'pause' => $workflow->pause_on_error,
+            'url' => $workflow->start_url ?? '', 'interval' => $workflow->check_interval, 'pause' => $workflow->pause_on_error, 'schedule' => $workflow->schedule,
             'steps' => $workflow->steps->map(fn ($step) => ['id' => $step->id, 'type' => $step->type, 'text' => $step->instruction])->values(),
             'notifications' => $workflow->notificationRules->map(fn ($rule) => ['id' => $rule->id, 'channel' => $rule->channel, 'trigger' => $rule->trigger, 'step' => $rule->step_position, 'destination' => $rule->destination, 'message' => $rule->message])->values(),
         ];

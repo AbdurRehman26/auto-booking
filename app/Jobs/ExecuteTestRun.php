@@ -4,6 +4,8 @@ namespace App\Jobs;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Process\Process;
@@ -23,12 +25,36 @@ class ExecuteTestRun implements ShouldQueue
     {
         $directory = Storage::disk('local')->path("test-runs/$this->runId");
         $process = new Process(['node', base_path('resources/js/browser-runner.mjs'), $directory], base_path(), env: [
+            'TERMINPILOT_RESEND_KEY' => config('services.resend.key') ?? '',
+            'TERMINPILOT_EMAIL_FROM' => config('mail.from.address') ?? '',
             'TERMINPILOT_TELEGRAM_TOKEN' => config('services.step_notifications.telegram_token') ?? '',
             'TERMINPILOT_TWILIO_SID' => config('services.step_notifications.twilio_sid') ?? '',
             'TERMINPILOT_TWILIO_TOKEN' => config('services.step_notifications.twilio_token') ?? '',
             'TERMINPILOT_WHATSAPP_FROM' => config('services.step_notifications.whatsapp_from') ?? '',
         ], timeout: 60);
-        $process->mustRun();
+        try {
+            $process->mustRun();
+        } finally {
+            $this->saveRecords();
+        }
+    }
+
+    public function saveRecords(): void
+    {
+        $disk = Storage::disk('local');
+        $path = "test-runs/$this->runId/records.jsonl";
+        if (! $disk->exists($path)) {
+            return;
+        }
+        $input = json_decode($disk->get("test-runs/$this->runId/input.json"), true, 512, JSON_THROW_ON_ERROR);
+        foreach (array_filter(explode("\n", $disk->get($path))) as $sequence => $line) {
+            $record = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
+            DB::table('workflow_records')->insertOrIgnore([
+                'user_id' => $input['user_id'], 'run_id' => $this->runId, 'sequence' => $sequence,
+                'step_number' => $record['step_number'], 'message' => $record['message'],
+                'page_url' => $record['page_url'], 'created_at' => Carbon::parse($record['created_at'])->utc(),
+            ]);
+        }
     }
 
     public function failed(?Throwable $exception): void
