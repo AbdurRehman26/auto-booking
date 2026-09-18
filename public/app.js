@@ -465,7 +465,10 @@ $("#notifyChannel").onchange=$("#notifyTrigger").onchange=updateNotifyFields;
 $("#saveNotify").onclick=saveNotification;
 document.querySelectorAll('[data-var]').forEach(b=>b.onclick=()=>{$("#notifyMessage").value+=`${$("#notifyMessage").value?' ':''}${b.dataset.var}`});
 $("#notifyModal").onclick=e=>{if(e.target===$("#notifyModal"))$("#closeNotify").click()};
-function showSection(section) {
+const sectionPaths={flows:'/flows',channels:'/channels',scheduled:'/scheduled-runs',records:'/records'};
+const sectionFromUrl=()=>Object.keys(sectionPaths).find(key=>sectionPaths[key]===location.pathname)||'flows';
+function showSection(section,updateUrl=true) {
+  if(updateUrl && location.pathname!==sectionPaths[section]) history.pushState(null,'',sectionPaths[section]);
   currentSection=section;
   $('#channelsPage').classList.toggle('hidden',section!=='channels');
   $('#scheduledRunsPage').classList.toggle('hidden',section!=='scheduled');
@@ -504,8 +507,15 @@ function openChannel(channel=null) {
   $('#channelDestination').value=channel?.destination||'';
   channelFields();$('#channelError').classList.add('hidden');$('#channelForm').classList.remove('hidden');$('#channelName').focus();
 }
-$('#myFlowsNav').onclick=()=>showSection('flows');
-$('#channelsNav').onclick=()=>showSection('channels');
+
+
+for(const [id,section] of [['myFlowsNav','flows'],['channelsNav','channels'],['scheduledRunsNav','scheduled'],['recordsNav','records']]) {
+  $('#'+id).onclick=event=>{
+    if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey) return;
+    event.preventDefault();showSection(section);
+  };
+}
+window.addEventListener('popstate',()=>{if(editorConfiguration) showSection(sectionFromUrl(),false);});
 let scheduledRunPage=1;
 async function loadScheduledRuns(page=1) {
   try {
@@ -514,11 +524,11 @@ async function loadScheduledRuns(page=1) {
     $('#previousScheduledRuns').disabled=page<=1;$('#nextScheduledRuns').disabled=page>=result.last_page;
   } catch(error){toast(error.message);}
 }
-$('#scheduledRunsNav').onclick=()=>showSection('scheduled');
+
 $('#refreshScheduledRuns').onclick=()=>loadScheduledRuns();
 $('#previousScheduledRuns').onclick=()=>loadScheduledRuns(scheduledRunPage-1);
 $('#nextScheduledRuns').onclick=()=>loadScheduledRuns(scheduledRunPage+1);
-$('#recordsNav').onclick=()=>showSection('records');
+
 let recordsPage=1;
 async function loadRecords(page=1) {
   try {const result=await api('/api/records?page='+page);recordsPage=page;$('#recordsList').innerHTML=result.data.length?result.data.map(record=>`<article class="channel-card"><div><small>${esc(new Date(record.created_at+'Z').toLocaleString())} · Step ${record.step_number}</small><p class="record-content">${esc(record.message)}</p><small>Run ${esc(record.run_id)}</small></div></article>`).join(''):'<p>No saved records yet. Add a Save to database step and run your flow.</p>';$('#recordsPrevious').disabled=page<=1;$('#recordsNext').disabled=page>=result.last_page;}catch(error){toast(error.message);}
@@ -562,7 +572,9 @@ document.querySelectorAll('[data-step-type]').forEach(button=>button.onclick=()=
     channels=await api('/api/channels');
     renderChannels();
     flows=await api('/api/workflows');
-    activeId=flows[0]?.id??null;render();
+    activeId=flows[0]?.id??null;
+    if(location.pathname==='/') history.replaceState(null,'',sectionPaths.flows);
+    showSection(sectionFromUrl(),false);
   }catch(e){$('#runBtn').disabled=true;toast(`Could not load database settings: ${e.message}`)}
 }
 boot();

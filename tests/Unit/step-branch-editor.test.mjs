@@ -37,7 +37,7 @@ test('branches use regular editors and persist nested settings without changing 
         }
         return route.fulfill({json:route.request().method()==='GET'?[saved||flow]:saved});
       }
-      if(url.pathname==='/') {
+      if(['/','/flows','/channels','/records','/scheduled-runs'].includes(url.pathname)) {
         const html=(await readFile(new URL('../../resources/views/app.blade.php',import.meta.url),'utf8')).replace(/\{\{ asset\('([^']+)'\) \}\}/g,'/$1');
         return route.fulfill({contentType:'text/html',body:html});
       }
@@ -105,7 +105,16 @@ test('branches use regular editors and persist nested settings without changing 
     assert.equal(await page.locator('[data-schedule-field="repeat_minutes"]').inputValue(),'7');
     assert.equal(await page.locator('[data-schedule-field="days"][value="3"]').isChecked(),true);
     assert.equal(await page.locator('[data-schedule-field="time"]').count(),0);
-    await page.getByRole('button',{name:'Channels',exact:false}).click();
+    await page.getByRole('link',{name:'Channels',exact:false}).click();
+    assert.equal(new URL(page.url()).pathname,'/channels');
+    await page.reload();
+    await page.locator('#channelsPage').waitFor({state:'visible'});
+    assert.equal(await page.locator('#channelsPage').isVisible(),true);
+    await page.goBack();
+    assert.equal(new URL(page.url()).pathname,'/flows');
+    await page.goForward();
+    await page.locator('#channelsPage').waitFor({state:'visible'});
+    assert.equal(await page.locator('#channelsPage').isVisible(),true);
     await page.locator('#newChannelBtn').click();
     await page.locator('#channelName').fill('Team alerts');
     await page.locator('#channelProvider').selectOption('slack');

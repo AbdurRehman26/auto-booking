@@ -26,6 +26,17 @@ class AuthenticationTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_sidebar_pages_require_login_and_can_be_opened_directly(): void
+    {
+        foreach (['/flows', '/channels', '/scheduled-runs', '/records'] as $path) {
+            $this->get($path)->assertRedirect('/login');
+        }
+        $this->actingAs(User::factory()->create());
+        foreach (['/flows', '/channels', '/scheduled-runs', '/records'] as $path) {
+            $this->get($path)->assertOk()->assertViewIs('app');
+        }
+    }
+
     public function test_users_only_list_and_edit_their_own_workflows(): void
     {
         $owner = User::factory()->create();

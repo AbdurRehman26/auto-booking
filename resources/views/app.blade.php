@@ -44,10 +44,10 @@
         <section class="workspace">
           <aside class="sidebar">
             <nav class="sidebar-menu" aria-label="Main navigation">
-              <button id="myFlowsNav" class="active" aria-current="page">▤ <span>My flows</span></button>
-              <button id="channelsNav">↗ <span>Channels</span></button>
-              <button id="scheduledRunsNav">◷ <span>Scheduled runs</span></button>
-              <button id="recordsNav">▤ <span>Saved records</span></button>
+              <a id="myFlowsNav" href="{{ route('flows') }}" class="active" aria-current="page">▤ <span>My flows</span></a>
+              <a id="channelsNav" href="{{ route('channels') }}">↗ <span>Channels</span></a>
+              <a id="scheduledRunsNav" href="{{ route('scheduled') }}">◷ <span>Scheduled runs</span></a>
+              <a id="recordsNav" href="{{ route('records') }}">▤ <span>Saved records</span></a>
             </nav>
             <div class="side-heading"><span>YOUR FLOWS</span><button id="addFlowSmall" aria-label="Add flow">＋</button></div>
             <div id="flowList" class="flow-list"></div>

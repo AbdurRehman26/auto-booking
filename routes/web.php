@@ -16,6 +16,11 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'destroy'])->name('logout');
     Route::view('/', 'app');
+    Route::view('/flows', 'app')->name('flows');
+    Route::view('/channels', 'app')->name('channels');
+    Route::view('/scheduled-runs', 'app')->name('scheduled');
+    Route::view('/records', 'app')->name('records');
+
     Route::get('api/scheduled-runs', ScheduledRunController::class);
     Route::get('api/records', WorkflowRecordController::class);
     Route::apiResource('api/channels', ChannelController::class)->except(['show']);
