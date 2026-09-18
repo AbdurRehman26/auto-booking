@@ -20,6 +20,21 @@ class TestRunTest extends TestCase
         $this->actingAs(User::factory()->create());
     }
 
+    public function test_authenticated_production_users_can_start_view_and_stop_their_run(): void
+    {
+        $this->app->instance('env', 'production');
+        $this->withSession(['_token' => 'production-test-token']);
+        $this->withHeader('X-CSRF-TOKEN', 'production-test-token');
+        Queue::fake();
+        Storage::fake('local');
+        $id = $this->postJson('/api/test-runs', ['url' => 'https://example.com', 'steps' => [['type' => 'check', 'text' => 'Verify "Ready"']]])->assertAccepted()->json('id');
+        $this->getJson("/api/test-runs/$id")->assertOk();
+        $this->deleteJson("/api/test-runs/$id")->assertOk();
+        $this->actingAs(User::factory()->create());
+        $this->getJson("/api/test-runs/$id")->assertNotFound();
+        $this->deleteJson("/api/test-runs/$id")->assertNotFound();
+    }
+
     public function test_run_queues_the_current_instructions_and_allows_its_session_to_view_it(): void
     {
         Queue::fake();

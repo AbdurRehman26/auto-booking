@@ -52,7 +52,7 @@ class TestRunController extends Controller
 
     private function state(Request $request, string $run): array
     {
-        abort_unless(app()->environment('local', 'testing') && $request->session()->get("test_runs.$run") === $request->user()->id, 404);
+        abort_unless($request->session()->get("test_runs.$run") === $request->user()->id, 404);
         abort_unless(Storage::disk('local')->exists("test-runs/$run/state.json"), 404);
 
         return json_decode(Storage::disk('local')->get("test-runs/$run/state.json"), true, flags: JSON_THROW_ON_ERROR);
