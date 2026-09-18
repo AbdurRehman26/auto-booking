@@ -22,9 +22,16 @@ test('branches use regular editors and persist nested settings without changing 
     let saved;
     let rejectActivation=false;
     let savedChannels=[];
+    const runs=[{id:'run-1',workflow_name:'First flow',status:'completed',created_at:'2026-09-18 12:00',archived:false},{id:'run-2',workflow_name:'Second flow',status:'failed',created_at:'2026-09-18 12:01',archived:false}];
     await page.route('**/*',async route=>{
       const url=new URL(route.request().url());
       if(url.origin!=='https://editor.test') return route.abort();
+      if(url.pathname==='/api/scheduled-runs/archive') {
+        const data=route.request().postDataJSON();
+        runs.filter(run=>data.ids.includes(run.id)).forEach(run=>run.archived=data.archived);
+        return route.fulfill({json:{message:data.archived?'Selected runs archived.':'Selected runs restored.'}});
+      }
+      if(url.pathname==='/api/scheduled-runs') return route.fulfill({json:{data:runs.filter(run=>run.archived===(url.searchParams.get('archived')==='1')),last_page:1}});
       if(url.pathname==='/api/channels') {
         if(route.request().method()==='POST') {const channel={id:1,...route.request().postDataJSON()};savedChannels=[channel];return route.fulfill({status:201,json:channel});}
         return route.fulfill({json:savedChannels});
@@ -176,5 +183,19 @@ test('branches use regular editors and persist nested settings without changing 
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
 
+    await page.locator('#scheduledRunsNav').click();
+    await page.locator('[data-select-run]').first().waitFor();
+    await page.locator('#selectAllRuns').check();
+    assert.equal(await page.locator('#archiveSelectedRuns').textContent(),'Archive selected (2)');
+    await page.locator('#archiveSelectedRuns').click();
+    await page.locator('#scheduledRunsList > p').waitFor();
+    assert.equal(runs.every(run=>run.archived),true);
+    await page.locator('#archivedRunsTab').click();
+    await page.locator('[data-select-run]').first().waitFor();
+    await page.locator('[data-select-run="run-1"]').check();
+    await page.locator('#archiveSelectedRuns').click();
+    await page.locator('[data-select-run="run-1"]').waitFor({state:'detached'});
+    assert.equal(runs[0].archived,false);
+    assert.equal(runs[1].archived,true);
   } finally {await browser.close();}
 });

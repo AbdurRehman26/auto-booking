@@ -21,6 +21,7 @@ Route::middleware('auth')->group(function () {
     Route::view('/scheduled-runs', 'app')->name('scheduled');
     Route::view('/records', 'app')->name('records');
 
+    Route::patch('api/scheduled-runs/archive', [ScheduledRunController::class, 'archive']);
     Route::get('api/scheduled-runs', ScheduledRunController::class);
     Route::get('api/records', WorkflowRecordController::class);
     Route::apiResource('api/channels', ChannelController::class)->except(['show']);

@@ -516,11 +516,38 @@ for(const [id,section] of [['myFlowsNav','flows'],['channelsNav','channels'],['s
   };
 }
 window.addEventListener('popstate',()=>{if(editorConfiguration) showSection(sectionFromUrl(),false);});
-let scheduledRunPage=1;
-async function loadScheduledRuns(page=1) {
+let scheduledRunPage=1, archivedRuns=false, scheduledRunsLoading=0;
+const selectedRuns=new Set();
+function updateRunSelection() {
+  const boxes=[...document.querySelectorAll('[data-select-run]')];
+  $('#selectAllRuns').checked=boxes.length>0 && boxes.every(box=>box.checked);
+  $('#selectAllRuns').indeterminate=selectedRuns.size>0 && !$('#selectAllRuns').checked;
+  $('#archiveSelectedRuns').disabled=!selectedRuns.size;
+  $('#archiveSelectedRuns').textContent=`${archivedRuns?'Restore':'Archive'} selected (${selectedRuns.size})`;
+}
+$('#selectAllRuns').onchange=event=>{
+  document.querySelectorAll('[data-select-run]').forEach(box=>{box.checked=event.target.checked;if(box.checked)selectedRuns.add(box.dataset.selectRun);else selectedRuns.delete(box.dataset.selectRun);});updateRunSelection();
+};
+for(const [id,archived] of [['currentRunsTab',false],['archivedRunsTab',true]]) {
+  $('#'+id).onclick=()=>{archivedRuns=archived;$('#scheduledRunNotice').textContent='';loadScheduledRuns();};
+}
+$('#archiveSelectedRuns').onclick=async()=>{
+  const button=$('#archiveSelectedRuns');button.disabled=true;
   try {
-    const result=await api('/api/scheduled-runs?page='+page);scheduledRunPage=page;
-    $('#scheduledRunsList').innerHTML=result.data.length?result.data.map(run=>`<article class="channel-card"><div><h3>${esc(run.workflow_name)}</h3><p>${esc(run.status)} · ${esc(run.created_at)} UTC</p><p>${esc(run.message||'')}</p></div></article>`).join(''):'<p>No scheduled runs yet. Enable a schedule in My flows to begin.</p>';
+    const result=await api('/api/scheduled-runs/archive',{method:'PATCH',body:JSON.stringify({ids:[...selectedRuns],archived:!archivedRuns})});
+    $('#scheduledRunNotice').textContent=result.message;await loadScheduledRuns();
+  }catch(error){$('#scheduledRunNotice').textContent=error.message;updateRunSelection();}
+};
+async function loadScheduledRuns(page=1) {
+  const request=++scheduledRunsLoading;selectedRuns.clear();
+  $('#archiveSelectedRuns').disabled=true;$('#selectAllRuns').checked=false;
+  $('#currentRunsTab').setAttribute('aria-selected',String(!archivedRuns));
+  $('#archivedRunsTab').setAttribute('aria-selected',String(archivedRuns));
+  try {
+    const result=await api('/api/scheduled-runs?page='+page+'&archived='+(archivedRuns?'1':'0'));if(request!==scheduledRunsLoading)return;scheduledRunPage=page;
+    $('#scheduledRunsList').innerHTML=result.data.length?result.data.map(run=>`<article class="channel-card"><input type="checkbox" data-select-run="${esc(run.id)}" aria-label="Select run for ${esc(run.workflow_name)} at ${esc(run.created_at)}"><div><h3>${esc(run.workflow_name)}</h3><p>${esc(run.status)} · ${esc(run.created_at)} UTC</p><p>${esc(run.message||'')}</p></div></article>`).join(''):`<p>${archivedRuns?'No archived runs.':'No scheduled runs yet. Enable a schedule in My flows to begin.'}</p>`;
+    document.querySelectorAll('[data-select-run]').forEach(box=>box.onchange=()=>{if(box.checked)selectedRuns.add(box.dataset.selectRun);else selectedRuns.delete(box.dataset.selectRun);updateRunSelection();});
+    updateRunSelection();
     $('#previousScheduledRuns').disabled=page<=1;$('#nextScheduledRuns').disabled=page>=result.last_page;
   } catch(error){toast(error.message);}
 }
