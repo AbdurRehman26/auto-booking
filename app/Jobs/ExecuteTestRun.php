@@ -20,13 +20,13 @@ class ExecuteTestRun implements ShouldQueue
 
     public int $timeout = 65;
 
-    public function __construct(public string $runId, public ?int $workflowId = null) {}
+    public function __construct(public string $runId, public ?int $workflowId = null, public bool $manual = false) {}
 
     public function handle(): void
     {
         if ($this->workflowId) {
             $workflow = Workflow::find($this->workflowId);
-            if (! $workflow?->schedule_enabled) {
+            if (! $workflow || (! $this->manual && ! $workflow->schedule_enabled)) {
                 DB::table('scheduled_runs')->where('id', $this->runId)->update(['status' => 'cancelled', 'message' => 'Schedule was disabled before this run started.', 'updated_at' => now()]);
 
                 return;
@@ -65,7 +65,7 @@ class ExecuteTestRun implements ShouldQueue
         }
         DB::table('scheduled_runs')->where('id', $this->runId)->update(['status' => $status, 'message' => $failure ?? ($state['message'] ?? 'Run stopped unexpectedly.'), 'updated_at' => now()]);
         $workflow = Workflow::find($this->workflowId);
-        if ($workflow && ($status === 'paused' || ($status === 'failed' && $workflow->pause_on_error))) {
+        if (! $this->manual && $workflow && ($status === 'paused' || ($status === 'failed' && $workflow->pause_on_error))) {
             $workflow->update(['schedule_enabled' => false]);
         }
     }
