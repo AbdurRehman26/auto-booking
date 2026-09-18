@@ -43,6 +43,12 @@ class StoreWorkflowRequest extends FormRequest
             'schedule.days' => [Rule::requiredIf(in_array('days', $fields)), 'nullable', 'array', 'min:1', 'max:7'],
             'schedule.days.*' => ['integer', 'between:0,6', 'distinct'],
             'schedule.date' => [Rule::requiredIf(in_array('date', $fields)), 'nullable', 'date_format:Y-m-d'],
+            'scheduleEnabled' => ['sometimes', 'boolean', function ($attribute, $value, $fail) {
+                if ($value && ($this->input('interval') === 'Manual only' || ! $this->input('url') || ! $this->input('steps'))) {
+                    $fail('Choose a schedule, start URL, and at least one step before enabling scheduled runs.');
+                }
+            }],
+            'scheduledNotifications' => ['sometimes', 'boolean'],
             'pause' => ['required', 'boolean'],
             'steps' => ['array'], 'steps.*.type' => ['required', 'string', Rule::in(array_keys($types))], 'steps.*.text' => ['required', 'string', 'max:6000'],
             'notifications' => ['array'], 'notifications.*.channel' => ['required', Rule::in(array_keys($settings['channels']))],

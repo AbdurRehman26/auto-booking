@@ -1,3 +1,4 @@
+import {interpretCondition} from './browser-ai-condition.mjs';
 import {configureNotificationProviders} from '../../public/step-notification.js';
 import { executeNotification } from './browser-notifications.mjs';
 import { requestDecision, clickAndFollow, isNavigationAction } from './browser-requests.mjs';
@@ -86,9 +87,10 @@ async function execute(step, index) {
   if (step.type === 'instruction') throw new NeedsInput(`Instruction for human review: ${step.text}`);
   if (step.type === 'condition') {
     let branch;
-    try {branch=await chooseBranch(page,step.text);} catch(error) {throw new NeedsInput(error.message);}
+    try {branch=await chooseBranch(page,step.text,interpretCondition);} catch(error) {throw new NeedsInput(error.message);}
     state.message = `${branch.matched?'Then':'Else'} branch: ${branch.action.type==='notify'?'Send notification':branch.action.text}`;
     step.detail = `“${branch.condition}” ${branch.matched?'is true':'is false'} → ${branch.matched?'Then':'Else'}: ${branch.action.type==='notify'?'Send notification':branch.action.text}`;
+    if(branch.evidence) step.detail+=` Evidence: ${branch.evidence}`;
     publish();
     const result=await execute(branch.action,index);
     return `${step.detail}. ${result}`;

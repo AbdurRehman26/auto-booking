@@ -23,11 +23,12 @@ export function parseStep(line) {
   const type=/^save to database:/i.test(text)?'record':/^notify\s+/i.test(text)?'notify':/^scroll\b/i.test(text)?'scroll':/^if\b/i.test(text)?'condition':/^(go|open|visit|navigate)\b/i.test(text)?'navigate':/^(click|choose|select|press)\b/i.test(text)?'click':/^(check|verify|confirm|make sure)\b/i.test(text)?'check':/^(enter|fill|type|provide)\b/i.test(text)?'enter':/^(wait|retry|monitor)\b/i.test(text)?'wait':/^(pause|review|approve)\b/i.test(text)?'review':'instruction';
   return text?{type,text}:null;
 }
-export async function chooseBranch(page, text) {
+export async function chooseBranch(page, text, evaluator=evaluateCondition) {
   const value=parseConditional(text);
   if(!value || !value.condition.trim() || !value.then.text.trim() || !value.else.text.trim()) throw new Error('Complete the condition and both branches before running this If / else step.');
-  const matched=await evaluateCondition(page,value.condition);
-  return {matched,action:matched?value.then:value.else,condition:value.condition};
+  const result=await evaluator(page,value.condition);
+  const matched=typeof result==='boolean'?result:result.matched;
+  return {matched,action:matched?value.then:value.else,condition:value.condition,evidence:typeof result==='object'?result.evidence:undefined};
 }
 
 export function parseScroll(text) {

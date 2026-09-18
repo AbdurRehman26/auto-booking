@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChannelController;
 use App\Http\Controllers\EditorConfigurationController;
+use App\Http\Controllers\ScheduledRunController;
 use App\Http\Controllers\TestRunController;
 use App\Http\Controllers\WorkflowController;
 use App\Http\Controllers\WorkflowRecordController;
@@ -15,6 +16,7 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'destroy'])->name('logout');
     Route::view('/', 'app');
+    Route::get('api/scheduled-runs', ScheduledRunController::class);
     Route::get('api/records', WorkflowRecordController::class);
     Route::apiResource('api/channels', ChannelController::class)->except(['show']);
     Route::get('api/editor-configuration', EditorConfigurationController::class);

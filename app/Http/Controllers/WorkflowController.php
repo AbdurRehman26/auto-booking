@@ -49,7 +49,7 @@ class WorkflowController extends Controller
 
     private function attributes(array $data): array
     {
-        return ['name' => $data['name'], 'status' => $data['status'] ?? 'Draft', 'start_url' => $data['url'] ?? null, 'check_interval' => $data['interval'], 'pause_on_error' => $data['pause'], 'schedule' => $data['schedule'] ?? null];
+        return ['name' => $data['name'], 'status' => $data['status'] ?? 'Draft', 'start_url' => $data['url'] ?? null, 'check_interval' => $data['interval'], 'pause_on_error' => $data['pause'], 'schedule' => $data['schedule'] ?? null, 'schedule_enabled' => $data['scheduleEnabled'] ?? false, 'scheduled_notifications' => $data['scheduledNotifications'] ?? false];
     }
 
     private function syncChildren(Workflow $workflow, array $data): void
@@ -68,7 +68,7 @@ class WorkflowController extends Controller
     {
         return [
             'id' => $workflow->id, 'publicId' => $workflow->public_id, 'name' => $workflow->name, 'status' => $workflow->status,
-            'url' => $workflow->start_url ?? '', 'interval' => $workflow->check_interval, 'pause' => $workflow->pause_on_error, 'schedule' => $workflow->schedule,
+            'url' => $workflow->start_url ?? '', 'interval' => $workflow->check_interval, 'pause' => $workflow->pause_on_error, 'schedule' => $workflow->schedule, 'scheduleEnabled' => $workflow->schedule_enabled, 'scheduledNotifications' => $workflow->scheduled_notifications,
             'steps' => $workflow->steps->map(fn ($step) => ['id' => $step->id, 'type' => $step->type, 'text' => $step->instruction])->values(),
             'notifications' => $workflow->notificationRules->map(fn ($rule) => ['id' => $rule->id, 'channel' => $rule->channel, 'trigger' => $rule->trigger, 'step' => $rule->step_position, 'destination' => $rule->destination, 'message' => $rule->message])->values(),
         ];

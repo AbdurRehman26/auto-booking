@@ -20,6 +20,7 @@ test('branches use regular editors and persist nested settings without changing 
     const page=await browser.newPage();
     const flow={id:1,name:'Editor fixture',status:'Draft',url:'https://example.com',interval:'Manual only',pause:true,notifications:[],steps:[{type:'condition',text:formatConditional({...defaultConditional(),then:{type:'notify',text:'Click \"Continue\"'}})}]};
     let saved;
+    let rejectActivation=false;
     let savedChannels=[];
     await page.route('**/*',async route=>{
       const url=new URL(route.request().url());
@@ -30,7 +31,10 @@ test('branches use regular editors and persist nested settings without changing 
       }
       if(url.pathname==='/api/editor-configuration') return route.fulfill({json:catalog});
       if(url.pathname.startsWith('/api/workflows')) {
-        if(route.request().method()==='PUT') saved=route.request().postDataJSON();
+        if(route.request().method()==='PUT') {
+          if(rejectActivation && route.request().postDataJSON().scheduleEnabled) return route.fulfill({status:422,json:{message:'Choose a schedule, start URL, and at least one step before enabling scheduled runs.'}});
+          saved=route.request().postDataJSON();
+        }
         return route.fulfill({json:route.request().method()==='GET'?[saved||flow]:saved});
       }
       if(url.pathname==='/') {
@@ -113,6 +117,24 @@ test('branches use regular editors and persist nested settings without changing 
     await branch.locator('[data-saved-channel]').selectOption('1');
     assert.equal(await branch.locator('[data-notification-field="provider"]').inputValue(),'slack');
     assert.equal(await branch.locator('[data-notification-field="destination"]').inputValue(),'https://hooks.slack.com/services/example');
+    await page.locator('#activateFlow').click();
+    await page.getByRole('button',{name:'Pause workflow',exact:true}).waitFor();
+    assert.equal(saved.scheduleEnabled,true);
+    assert.match(await page.locator('#activationError').textContent(),/Workflow activated/);
+    assert.equal(await page.locator('#activationError').isVisible(),true);
+    assert.equal(await page.locator('#workflowStatus').textContent(),'ACTIVE');
+    await page.reload();
+    await page.getByRole('button',{name:'Pause workflow',exact:true}).click();
+    await page.getByRole('button',{name:'Activate workflow',exact:true}).waitFor();
+    assert.equal(saved.scheduleEnabled,false);
+    assert.match(await page.locator('#activationError').textContent(),/Workflow paused/);
+    rejectActivation=true;
+    await page.locator('#activateFlow').click();
+    await page.locator('#activationError[data-kind="error"]').waitFor();
+    assert.match(await page.locator('#activationError').textContent(),/Choose a schedule/);
+    assert.equal(saved.scheduleEnabled,false);
+    assert.equal(await page.locator('#activateFlow').isEnabled(),true);
+    assert.equal(await page.locator('#workflowStatus').textContent(),'PAUSED');
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
 

@@ -46,6 +46,7 @@
             <nav class="sidebar-menu" aria-label="Main navigation">
               <button id="myFlowsNav" class="active" aria-current="page">▤ <span>My flows</span></button>
               <button id="channelsNav">↗ <span>Channels</span></button>
+              <button id="scheduledRunsNav">◷ <span>Scheduled runs</span></button>
               <button id="recordsNav">▤ <span>Saved records</span></button>
             </nav>
             <div class="side-heading"><span>YOUR FLOWS</span><button id="addFlowSmall" aria-label="Add flow">＋</button></div>
@@ -56,6 +57,7 @@
             </div>
           </aside>
 
+          <section id="scheduledRunsPage" class="channels-page hidden"><div class="channels-heading"><h2>Scheduled runs</h2><button id="refreshScheduledRuns" class="btn secondary">Refresh</button></div><div id="scheduledRunsList" class="channels-list"></div><div class="modal-actions"><button id="previousScheduledRuns" class="btn secondary">Previous</button><button id="nextScheduledRuns" class="btn secondary">Next</button></div></section>
           <section id="recordsPage" class="channels-page hidden">
             <div class="channels-heading"><div><div class="eyebrow">RUN HISTORY</div><h2>Saved records</h2><p>Messages saved by your workflow steps.</p></div><button class="btn secondary" id="refreshRecords">Refresh</button></div>
             <div id="recordsList" class="channels-list"></div>
@@ -77,7 +79,9 @@
           <section class="canvas">
             <div class="canvas-head">
               <div>
-                <div class="title-row"><input id="flowName" value="" aria-label="Workflow name"><span class="pill">DRAFT</span></div>
+                <div class="title-row"><input id="flowName" value="" aria-label="Workflow name"><span id="workflowStatus" class="pill">PAUSED</span></div>
+                <button id="activateFlow" class="btn primary workflow-activation" type="button" aria-pressed="false">Activate workflow</button>
+                <p id="activationError" class="condition-help hidden" role="alert"></p>
                 <p id="flowMeta">Loading from database…</p>
               </div>
               <div class="canvas-tools">
@@ -114,7 +118,9 @@
             <label class="field"><span>Start URL</span><input id="startUrl" type="url"></label>
             <label class="field"><span>Days / date</span><select id="interval"></select></label>
             <div id="scheduleFields"></div>
-            <p class="condition-help">Schedule settings are saved. Automatic scheduled runs are not enabled yet.</p>
+            <label class="delivery-choice"><input id="scheduleEnabled" type="checkbox"> Enable scheduled runs</label>
+            <label class="delivery-choice"><input id="scheduledNotifications" type="checkbox"> Send real notifications in scheduled runs</label>
+            <p class="condition-help">Runs while this computer is awake. Human checkpoints pause scheduling. “Pause on errors” also pauses scheduling after a failed run.</p>
             <div class="toggle-row"><div><strong>Pause on errors</strong><small>Wait for your input</small></div><button class="toggle on" id="pauseToggle" aria-label="Pause on errors"><i></i></button></div>
             <div class="toggle-row"><div><strong>Final review</strong><small>Required before booking</small></div><button class="toggle on locked" aria-label="Final review locked"><i></i></button></div>
             <div class="divider"></div>

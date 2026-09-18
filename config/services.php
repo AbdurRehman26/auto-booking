@@ -14,6 +14,11 @@ return [
     |
     */
 
+    'condition_ai' => [
+        'key' => env('OPENAI_API_KEY'),
+        'model' => env('OPENAI_CONDITION_MODEL', 'gpt-4.1-mini'),
+    ],
+
     'step_notifications' => [
         'telegram_token' => env('TELEGRAM_BOT_TOKEN'),
         'twilio_sid' => env('TWILIO_ACCOUNT_SID'),

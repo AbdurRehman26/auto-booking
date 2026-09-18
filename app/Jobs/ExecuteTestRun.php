@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\Workflow;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Carbon;
@@ -19,12 +20,23 @@ class ExecuteTestRun implements ShouldQueue
 
     public int $timeout = 65;
 
-    public function __construct(public string $runId) {}
+    public function __construct(public string $runId, public ?int $workflowId = null) {}
 
     public function handle(): void
     {
+        if ($this->workflowId) {
+            $workflow = Workflow::find($this->workflowId);
+            if (! $workflow?->schedule_enabled) {
+                DB::table('scheduled_runs')->where('id', $this->runId)->update(['status' => 'cancelled', 'message' => 'Schedule was disabled before this run started.', 'updated_at' => now()]);
+
+                return;
+            }
+            DB::table('scheduled_runs')->where('id', $this->runId)->update(['status' => 'running', 'updated_at' => now()]);
+        }
         $directory = Storage::disk('local')->path("test-runs/$this->runId");
         $process = new Process(['node', base_path('resources/js/browser-runner.mjs'), $directory], base_path(), env: [
+            'TERMINPILOT_OPENAI_KEY' => config('services.condition_ai.key') ?? '',
+            'TERMINPILOT_OPENAI_MODEL' => config('services.condition_ai.model'),
             'TERMINPILOT_RESEND_KEY' => config('services.resend.key') ?? '',
             'TERMINPILOT_EMAIL_FROM' => config('mail.from.address') ?? '',
             'TERMINPILOT_TELEGRAM_TOKEN' => config('services.step_notifications.telegram_token') ?? '',
@@ -36,6 +48,25 @@ class ExecuteTestRun implements ShouldQueue
             $process->mustRun();
         } finally {
             $this->saveRecords();
+            $this->finishSchedule();
+        }
+    }
+
+    private function finishSchedule(?string $failure = null): void
+    {
+        if (! $this->workflowId) {
+            return;
+        }
+        $path = "test-runs/$this->runId/state.json";
+        $state = Storage::disk('local')->exists($path) ? json_decode(Storage::disk('local')->get($path), true) : [];
+        $status = $failure ? 'failed' : ($state['status'] ?? 'failed');
+        if (! in_array($status, ['completed', 'paused', 'failed', 'stopped'])) {
+            $status = 'failed';
+        }
+        DB::table('scheduled_runs')->where('id', $this->runId)->update(['status' => $status, 'message' => $failure ?? ($state['message'] ?? 'Run stopped unexpectedly.'), 'updated_at' => now()]);
+        $workflow = Workflow::find($this->workflowId);
+        if ($workflow && ($status === 'paused' || ($status === 'failed' && $workflow->pause_on_error))) {
+            $workflow->update(['schedule_enabled' => false]);
         }
     }
 
@@ -59,6 +90,7 @@ class ExecuteTestRun implements ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
+        $this->finishSchedule('The scheduled runner stopped unexpectedly.');
         $path = Storage::disk('local')->path("test-runs/$this->runId/state.json");
         if (! File::exists($path)) {
             return;

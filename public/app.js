@@ -6,6 +6,7 @@ let icons = {}, labels = {}, channelIcons = {}, triggerLabels = {}, editorConfig
 let flows = [];
 let channels = [], currentSection = 'flows', editingChannel = null;
 let activeId = null;
+let activationPending=false;
 let runTimer;
 const $ = s => document.querySelector(s);
 const active = () => flows.find(f=>f.id===activeId);
@@ -94,7 +95,7 @@ function stepCard(step,index,path='') {
 function conditionalEditor(step, index, path) {
   const value=parseConditional(step.text);
   if(!value) return `<input class="step-instruction" value="${esc(step.text)}" aria-label="Step ${index+1}"><small class="condition-help">Use: If "Text" is visible then click: "Click label" else review: "Pause"</small>`;
-  return `<div class="condition-editor"><label>If<input placeholder='Button "Continue" is shown, or error message is shown' data-condition-field="condition" value="${esc(value.condition)}" aria-label="Step ${index+1} condition"></label>${['then','else'].map(branch=>{
+  return `<div class="condition-editor"><label>If<input placeholder='Button "Continue" is shown, or error message is shown' data-condition-field="condition" value="${esc(value.condition)}" aria-label="Step ${index+1} condition"></label><small class="condition-help">Describe what the page shows. Free-form conditions use OpenAI and send visible page text for interpretation. If OpenAI fails, the condition uses exact or substring text matching. Uncertain AI results pause the run. Quote exact text to check it directly.</small>${['then','else'].map(branch=>{
     const branchPath=[path,branch].filter(Boolean).join('.');
     const pickerId=`branch-picker-${index}-${branchPath.replaceAll('.','-')}`;
     return `<div class="condition-branch" data-branch="${branch}"><div class="branch-heading"><span>${branch==='then'?'THEN':'ELSE'}</span><button class="step-duplicate branch-change" aria-expanded="false" aria-controls="${pickerId}" aria-label="Change ${branchPath} step">Change step</button></div>${stepCard(value[branch],index,branchPath)}<div id="${pickerId}" class="step-picker branch-picker hidden"><div class="step-picker-head"><strong>Choose a step</strong><button class="branch-picker-close" aria-label="Close step choices">×</button></div><div class="step-choices">${stepChoices('data-branch-type')}</div></div></div>`;
@@ -183,6 +184,14 @@ function render(){
   $("#flowList").innerHTML=flows.map(f=>`<button class="flow-item ${f.id===activeId?'active':''}" data-id="${f.id}"><i></i><span>${esc(f.name)}<small>${f.steps.length} steps · ${f.status}</small></span></button>`).join("");
   $("#flowName").value=flow.name; $("#startUrl").value=flow.url; $("#interval").value=flow.interval;
   renderSchedule();
+  $('#scheduleEnabled').checked=!!flow.scheduleEnabled;
+  $('#scheduleEnabled').disabled=activationPending;
+  $('#activateFlow').disabled=activationPending;
+  $('#activateFlow').textContent=activationPending?'Saving…':flow.scheduleEnabled?'Pause workflow':'Activate workflow';
+  $('#activateFlow').setAttribute('aria-pressed',String(!!flow.scheduleEnabled));
+  $('#workflowStatus').textContent=flow.scheduleEnabled?'ACTIVE':'PAUSED';
+  $('#workflowStatus').classList.toggle('workflow-active',!!flow.scheduleEnabled);
+  $('#scheduledNotifications').checked=!!flow.scheduledNotifications;
   $("#flowMeta").textContent=`${flow.steps.length} steps · Saved in database`;
   $("#steps").innerHTML=flow.steps.map((s,i)=>`<div class="step" data-index="${i}"><button class="step-number step-drag" aria-label="Move step ${i+1}" aria-describedby="reorderHelp" title="Drag to move · Arrow keys to reorder"><span class="drag-grip" aria-hidden="true">⠿</span><span>${String(i+1).padStart(2,'0')}</span></button>${stepCard(s,i)}<div class="step-actions"><button class="step-duplicate" title="Copy step" aria-label="Copy step ${i+1}">Copy</button><button class="step-menu" title="Remove step" aria-label="Remove step ${i+1}">×</button></div></div>`).join("");
   $("#flowText").value=flow.steps.map((s,i)=>`${i+1}. ${s.type==='record'?'Save to database: ':''}${s.text}`).join("\n");
@@ -367,10 +376,45 @@ $("#interval").onchange=e=>{
   flow.schedule=fields.length?Object.fromEntries([...fields.filter(key=>key!=='time'||!Number(value.repeat_minutes)),'timezone','repeat_minutes','repeat_custom'].filter(key=>value[key]!==undefined).map(key=>[key,value[key]])):null;
   renderSchedule();save();
 };
+function activationNotice(message,kind='info') {
+  const notice=$('#activationError');
+  notice.textContent=message;notice.dataset.kind=kind;
+  notice.setAttribute('role',kind==='error'?'alert':'status');
+  notice.classList.remove('hidden');
+}
+async function setWorkflowActive(enabled) {
+  if(activationPending)return;
+  const flow=active();if(!flow)return;
+  const previous=!!flow.scheduleEnabled;
+  activationPending=true;
+  $('#activateFlow').disabled=true;$('#scheduleEnabled').disabled=true;
+  $('#activateFlow').textContent=enabled?'Activating…':'Pausing…';
+  activationNotice(enabled?'Saving your flow and enabling its schedule…':'Pausing future scheduled runs…');
+  try {
+    clearTimeout(pendingSaves.get(flow.id));pendingSaves.delete(flow.id);
+    await saveChain;
+    const snapshot={...structuredClone(flow),scheduleEnabled:enabled};
+    await api('/api/workflows/'+flow.id,{method:'PUT',body:JSON.stringify(snapshot),signal:AbortSignal.timeout(15000)});
+    flow.scheduleEnabled=enabled;
+    const message=enabled?'Workflow activated. It will run at the next matching scheduled time.':'Workflow paused. No new scheduled runs will start.';
+    activationNotice(message,'success');toast(message);
+  } catch(error) {
+    flow.scheduleEnabled=previous;
+    const detail=error.name==='TimeoutError'?'The server did not respond in time. Refresh to confirm the saved status before retrying.':error.message;
+    activationNotice(`Workflow ${enabled?'could not be activated':'could not be paused'}: ${detail}`,'error');
+  } finally {
+    activationPending=false;
+    render();
+    $('#activationError').scrollIntoView({block:'nearest',behavior:'smooth'});
+  }
+}
+$('#scheduleEnabled').onchange=event=>setWorkflowActive(event.target.checked);
+$('#activateFlow').onclick=()=>setWorkflowActive(!active().scheduleEnabled);
+$('#scheduledNotifications').onchange=event=>{active().scheduledNotifications=event.target.checked;save();};
 $("#pauseToggle").onclick=()=>{active().pause=!active().pause;save();render()};
 $("#applyTextBtn").onclick=()=>{const parsed=$("#flowText").value.split('\n').map(parseStep).filter(Boolean);if(!parsed.length){toast('Write at least one instruction');return}active().steps=parsed;save();render();switchMode('visual');toast(`${parsed.length} steps created`)};
 document.querySelectorAll('.mode-switch button').forEach(b=>b.onclick=()=>switchMode(b.dataset.mode));
-$("#copyBtn").onclick=async()=>{try{const copy=structuredClone(active());delete copy.id;copy.name=`${copy.name} copy`;const created=await api('/api/workflows',{method:'POST',body:JSON.stringify(copy)});flows.unshift(created);activeId=created.id;render();toast('Flow copied')}catch(e){toast(e.message)}};
+$("#copyBtn").onclick=async()=>{try{const copy=structuredClone(active());delete copy.id;copy.scheduleEnabled=false;copy.name=`${copy.name} copy`;const created=await api('/api/workflows',{method:'POST',body:JSON.stringify(copy)});flows.unshift(created);activeId=created.id;render();toast('Flow copied')}catch(e){toast(e.message)}};
 $("#deleteBtn").onclick=async()=>{if(flows.length===1){toast('Keep at least one flow');return}try{await api(`/api/workflows/${activeId}`,{method:'DELETE'});flows=flows.filter(f=>f.id!==activeId);activeId=flows[0].id;render();toast('Flow deleted')}catch(e){toast(e.message)}};
 $("#runBtn").onclick=testRun;
 $("#retryRun").onclick=testRun;
@@ -398,12 +442,14 @@ $("#notifyModal").onclick=e=>{if(e.target===$("#notifyModal"))$("#closeNotify").
 function showSection(section) {
   currentSection=section;
   $('#channelsPage').classList.toggle('hidden',section!=='channels');
+  $('#scheduledRunsPage').classList.toggle('hidden',section!=='scheduled');
+  if(section==='scheduled') loadScheduledRuns();
   $('#recordsPage').classList.toggle('hidden',section!=='records');
   if(section==='records') loadRecords();
   document.querySelector('.intro-actions').classList.toggle('hidden',section!=='flows');
   document.querySelector('.sidebar .side-heading').classList.toggle('hidden',section!=='flows');
   $('#flowList').classList.toggle('hidden',section!=='flows');
-  for(const [id,name] of [['myFlowsNav','flows'],['channelsNav','channels'],['recordsNav','records']]) {
+  for(const [id,name] of [['myFlowsNav','flows'],['channelsNav','channels'],['recordsNav','records'],['scheduledRunsNav','scheduled']]) {
     $(`#${id}`).classList.toggle('active',section===name);
     if(section===name) $(`#${id}`).setAttribute('aria-current','page');else $(`#${id}`).removeAttribute('aria-current');
   }
@@ -434,6 +480,18 @@ function openChannel(channel=null) {
 }
 $('#myFlowsNav').onclick=()=>showSection('flows');
 $('#channelsNav').onclick=()=>showSection('channels');
+let scheduledRunPage=1;
+async function loadScheduledRuns(page=1) {
+  try {
+    const result=await api('/api/scheduled-runs?page='+page);scheduledRunPage=page;
+    $('#scheduledRunsList').innerHTML=result.data.length?result.data.map(run=>`<article class="channel-card"><div><h3>${esc(run.workflow_name)}</h3><p>${esc(run.status)} · ${esc(run.created_at)} UTC</p><p>${esc(run.message||'')}</p></div></article>`).join(''):'<p>No scheduled runs yet. Enable a schedule in My flows to begin.</p>';
+    $('#previousScheduledRuns').disabled=page<=1;$('#nextScheduledRuns').disabled=page>=result.last_page;
+  } catch(error){toast(error.message);}
+}
+$('#scheduledRunsNav').onclick=()=>showSection('scheduled');
+$('#refreshScheduledRuns').onclick=()=>loadScheduledRuns();
+$('#previousScheduledRuns').onclick=()=>loadScheduledRuns(scheduledRunPage-1);
+$('#nextScheduledRuns').onclick=()=>loadScheduledRuns(scheduledRunPage+1);
 $('#recordsNav').onclick=()=>showSection('records');
 let recordsPage=1;
 async function loadRecords(page=1) {
