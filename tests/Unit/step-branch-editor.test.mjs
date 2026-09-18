@@ -135,6 +135,24 @@ test('branches use regular editors and persist nested settings without changing 
     assert.equal(saved.scheduleEnabled,false);
     assert.equal(await page.locator('#activateFlow').isEnabled(),true);
     assert.equal(await page.locator('#workflowStatus').textContent(),'PAUSED');
+    const originalSteps=structuredClone(saved.steps);
+    await page.getByRole('button',{name:'Change step 1 type',exact:true}).click();
+    const typePicker=page.locator('#step-type-picker-0');
+    assert.equal(await typePicker.locator('[data-replace-type]').count(),Object.keys(stepTypes).length);
+    await typePicker.locator('[data-replace-type="condition"]').click();
+    assert.equal(await branch.locator('[data-notification-field="destination"]').inputValue(),'https://hooks.slack.com/services/example');
+    assert.deepEqual(saved.steps,originalSteps);
+    await page.getByRole('button',{name:'Change step 1 type',exact:true}).click();
+    await typePicker.locator('[data-replace-type="wait"]').click();
+    await page.locator('[data-step-path=""] [data-wait-duration]').fill('9');
+    await page.waitForResponse(response=>response.url().endsWith('/api/workflows/1') && response.request().method()==='PUT');
+    assert.deepEqual(saved.steps,[{type:'wait',text:'Wait 9 seconds'}]);
+    await page.reload();
+    assert.equal(await page.locator('[data-wait-duration]').inputValue(),'9');
+    await page.getByRole('button',{name:'Change step 1 type',exact:true}).click();
+    await typePicker.locator('[data-replace-type="click"]').press('Escape');
+    assert.equal(await typePicker.isVisible(),false);
+    assert.equal(await page.getByRole('button',{name:'Change step 1 type',exact:true}).getAttribute('aria-expanded'),'false');
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
 

@@ -90,7 +90,10 @@ function stepChoices(attribute='data-step-type') {
   return Object.entries(stepTypes).map(([type,meta])=>`<button class="step-choice" ${attribute}="${esc(type)}"><span class="step-icon" aria-hidden="true">${esc(meta.icon)}</span><span><strong>${esc(meta.label)}</strong><small>${esc(meta.description)}</small></span></button>`).join('');
 }
 function stepCard(step,index,path='') {
-  return `<div class="step-card"><div class="step-icon">${esc(icons[step.type]||'•')}</div><div class="step-copy"><strong>${esc(labels[step.type]||'ACTION')}</strong>${stepEditor(step,index,path)}</div></div>`;
+  const pickerId=`step-type-picker-${index}`;
+  const heading=path?`<strong>${esc(labels[step.type]||'ACTION')}</strong>`:`<div class="branch-heading"><strong>${esc(labels[step.type]||'ACTION')}</strong><button class="step-duplicate type-change" aria-expanded="false" aria-controls="${pickerId}" aria-label="Change step ${index+1} type">Change step</button></div>`;
+  const picker=path?'':`<div id="${pickerId}" class="step-picker branch-picker hidden"><div class="step-picker-head"><strong>Choose a step</strong><button class="branch-picker-close" aria-label="Close step choices">×</button></div><small class="condition-help">Changing type replaces this step’s settings. Selecting the current type keeps them.</small><div class="step-choices">${stepChoices('data-replace-type')}</div></div>`;
+  return `<div class="step-card"><div class="step-icon">${esc(icons[step.type]||'•')}</div><div class="step-copy">${heading}${stepEditor(step,index,path)}${picker}</div></div>`;
 }
 function conditionalEditor(step, index, path) {
   const value=parseConditional(step.text);
@@ -102,16 +105,26 @@ function conditionalEditor(step, index, path) {
   }).join('')}</div>`;
 }
 function bindBranchPickers() {
-  document.querySelectorAll('.branch-change').forEach(button=>button.onclick=()=>{
+  document.querySelectorAll('.branch-change, .type-change').forEach(button=>button.onclick=()=>{
     const picker=document.getElementById(button.getAttribute('aria-controls'));
     const opening=picker.classList.contains('hidden');
     picker.classList.toggle('hidden',!opening);button.setAttribute('aria-expanded',String(opening));
     if(opening) picker.querySelector('.step-choice').focus();
   });
   document.querySelectorAll('.branch-picker').forEach(picker=>{
-    const close=()=>{picker.classList.add('hidden');const button=picker.parentElement.querySelector('.branch-change');button.setAttribute('aria-expanded','false');button.focus();};
+    const close=()=>{picker.classList.add('hidden');const button=picker.parentElement.querySelector('.branch-change, .type-change');button.setAttribute('aria-expanded','false');button.focus();};
     picker.querySelector('.branch-picker-close').onclick=close;
     picker.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();close();}};
+  });
+  document.querySelectorAll('[data-replace-type]').forEach(button=>button.onclick=()=>{
+    const index=Number(button.closest('.step').dataset.index);
+    const type=button.dataset.replaceType;
+    if(active().steps[index].type!==type) {
+      active().steps[index]={type,text:stepTypes[type].text};
+      save();
+    }
+    render();
+    document.querySelector(`[data-index="${index}"] .type-change`).focus();
   });
   document.querySelectorAll('[data-branch-type]').forEach(button=>button.onclick=()=>{
     const branch=button.closest('[data-branch]').dataset.branch;
