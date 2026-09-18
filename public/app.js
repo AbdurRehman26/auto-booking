@@ -105,16 +105,29 @@ function conditionalEditor(step, index, path) {
   }).join('')}</div>`;
 }
 function bindBranchPickers() {
-  document.querySelectorAll('.branch-change, .type-change').forEach(button=>button.onclick=()=>{
+  document.querySelectorAll('.branch-change, .type-change, .insert-change').forEach(button=>button.onclick=()=>{
     const picker=document.getElementById(button.getAttribute('aria-controls'));
     const opening=picker.classList.contains('hidden');
     picker.classList.toggle('hidden',!opening);button.setAttribute('aria-expanded',String(opening));
     if(opening) picker.querySelector('.step-choice').focus();
   });
   document.querySelectorAll('.branch-picker').forEach(picker=>{
-    const close=()=>{picker.classList.add('hidden');const button=picker.parentElement.querySelector('.branch-change, .type-change');button.setAttribute('aria-expanded','false');button.focus();};
+    const close=()=>{picker.classList.add('hidden');const button=picker.parentElement.querySelector('.branch-change, .type-change, .insert-change');button.setAttribute('aria-expanded','false');button.focus();};
     picker.querySelector('.branch-picker-close').onclick=close;
     picker.onkeydown=event=>{if(event.key==='Escape'){event.stopPropagation();close();}};
+  });
+  document.querySelectorAll('[data-insert-type]').forEach(button=>button.onclick=()=>{
+    const index=Number(button.closest('.step').dataset.index)+1;
+    const type=button.dataset.insertType;
+    const flow=active();
+    flow.steps.splice(index,0,{type,text:stepTypes[type].text});
+    for(const notification of flow.notifications || []) {
+      if(notification.trigger==='step' && Number.isInteger(notification.step) && notification.step>=index) notification.step++;
+    }
+    save();render();
+    const row=document.querySelector(`[data-index="${index}"]`);
+    row.querySelector('input, textarea, .type-change')?.focus();
+    row.scrollIntoView({block:'nearest'});
   });
   document.querySelectorAll('[data-replace-type]').forEach(button=>button.onclick=()=>{
     const index=Number(button.closest('.step').dataset.index);
@@ -206,7 +219,7 @@ function render(){
   $('#workflowStatus').classList.toggle('workflow-active',!!flow.scheduleEnabled);
   $('#scheduledNotifications').checked=!!flow.scheduledNotifications;
   $("#flowMeta").textContent=`${flow.steps.length} steps · Saved in database`;
-  $("#steps").innerHTML=flow.steps.map((s,i)=>`<div class="step" data-index="${i}"><button class="step-number step-drag" aria-label="Move step ${i+1}" aria-describedby="reorderHelp" title="Drag to move · Arrow keys to reorder"><span class="drag-grip" aria-hidden="true">⠿</span><span>${String(i+1).padStart(2,'0')}</span></button>${stepCard(s,i)}<div class="step-actions"><button class="step-duplicate" title="Copy step" aria-label="Copy step ${i+1}">Copy</button><button class="step-menu" title="Remove step" aria-label="Remove step ${i+1}">×</button></div></div>`).join("");
+  $("#steps").innerHTML=flow.steps.map((s,i)=>`<div class="step" data-index="${i}"><button class="step-number step-drag" aria-label="Move step ${i+1}" aria-describedby="reorderHelp" title="Drag to move · Arrow keys to reorder"><span class="drag-grip" aria-hidden="true">⠿</span><span>${String(i+1).padStart(2,'0')}</span></button>${stepCard(s,i)}<div class="step-actions"><button class="step-duplicate" title="Copy step" aria-label="Copy step ${i+1}">Copy</button><button class="step-menu" title="Remove step" aria-label="Remove step ${i+1}">×</button></div>${i<flow.steps.length-1?`<div class="step-insert" style="grid-column:2 / -1"><button class="step-duplicate insert-change" aria-expanded="false" aria-controls="insert-picker-${i}" aria-label="Add step after step ${i+1}">＋ Add step</button><div id="insert-picker-${i}" class="step-picker branch-picker hidden"><div class="step-picker-head"><strong>Choose a step</strong><button class="branch-picker-close" aria-label="Close step choices">×</button></div><div class="step-choices">${stepChoices('data-insert-type')}</div></div></div>`:''}</div>`).join("");
   $("#flowText").value=flow.steps.map((s,i)=>`${i+1}. ${s.type==='record'?'Save to database: ':''}${s.text}`).join("\n");
   $("#pauseToggle").classList.toggle("on",flow.pause);
   $("#notificationList").innerHTML=flow.notifications.length?flow.notifications.map((n,i)=>`<div class="notification-item"><span class="channel-icon">${channelIcons[n.channel]}</span><span><strong>${esc(n.channel)} · ${triggerLabels[n.trigger]}</strong><small>${esc(n.destination)}</small></span><button data-notify-index="${i}" aria-label="Remove notification">×</button></div>`).join(''):`<div class="notification-empty">No alerts yet. Add one for failures, availability, or a specific step.</div>`;

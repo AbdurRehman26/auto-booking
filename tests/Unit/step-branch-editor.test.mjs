@@ -153,6 +153,17 @@ test('branches use regular editors and persist nested settings without changing 
     await typePicker.locator('[data-replace-type="click"]').press('Escape');
     assert.equal(await typePicker.isVisible(),false);
     assert.equal(await page.getByRole('button',{name:'Change step 1 type',exact:true}).getAttribute('aria-expanded'),'false');
+    await page.getByRole('button',{name:'Copy step 1',exact:true}).click();
+    await page.getByRole('button',{name:'Add step after step 1',exact:true}).click();
+    await page.locator('#insert-picker-0 [data-insert-type="wait"]').click();
+    await page.locator('[data-index="1"] [data-wait-duration]').fill('3');
+    await page.waitForResponse(response=>response.url().endsWith('/api/workflows/1') && response.request().method()==='PUT');
+    assert.deepEqual(saved.steps.map(step=>step.text),['Wait 9 seconds','Wait 3 seconds','Wait 9 seconds']);
+    await page.reload();
+    assert.equal(await page.locator('[data-index="1"] [data-wait-duration]').inputValue(),'3');
+    await page.getByRole('button',{name:'Move step 2',exact:true}).press('End');
+    await page.waitForResponse(response=>response.url().endsWith('/api/workflows/1') && response.request().method()==='PUT');
+    assert.deepEqual(saved.steps.map(step=>step.text),['Wait 9 seconds','Wait 9 seconds','Wait 3 seconds']);
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
 
